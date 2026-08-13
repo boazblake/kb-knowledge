@@ -1,0 +1,57 @@
+{
+  "schema": "kb-pipeline.gate4-evidence.v1",
+  "gate": 4,
+  "validation_owner": "QA",
+  "provenance": {
+    "source": "executed",
+    "manifest": "tests/test_manifest.json",
+    "manifest_sha256": "099725b2ba439464cefc0787b514241a10307dda1c58f21f3181e3b95df47ca7",
+    "captured_at": "2026-08-13T00:00:00Z"
+  },
+  "test_count": 60,
+  "suite_version": "0.1.0",
+  "environment": {
+    "python": "3.9",
+    "unittest_runs": 2,
+    "compileall": "pass",
+    "node_check": "pass",
+    "platform": "darwin"
+  },
+  "scenario_results": [
+    {"id": "scenario", "status": "pass"},
+    {"id": "checksum", "status": "pass"},
+    {"id": "restore", "status": "pass"},
+    {"id": "interruption", "status": "pass"},
+    {"id": "purge", "status": "pass"},
+    {"id": "replay", "status": "pass"},
+    {"id": "readiness", "status": "pass"},
+    {"id": "limits", "status": "pass"},
+    {"id": "log-redaction", "status": "pass"},
+    {"id": "provenance", "status": "pass"}
+  ],
+  "backup_bundle_checksums": [
+    {"path": "database.sqlite", "sha256": "19e5fda03190e688f79fbe027024f40c6b71259fe8ce0698f8e798cf60a8c950"},
+    {"path": "database.sqlite-shm", "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"},
+    {"path": "database.sqlite-wal", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
+  ],
+  "sqlite_integrity": "pass",
+  "restore_validation": "pass",
+  "interruption_outcomes": [
+    {"id": "restore-copy", "status": "pass"},
+    {"id": "restore-promotion", "status": "pass"},
+    {"id": "backup-publish", "status": "pass"}
+  ],
+  "category_results": {
+    "purge": "pass",
+    "replay": "pass",
+    "readiness": "pass",
+    "limits": "pass",
+    "log_redaction": "pass"
+  },
+  "exclusions": [
+    "external KMS/OIDC",
+    "production claims",
+    "non-local connectors",
+    "real-data pilot"
+  ]
+}

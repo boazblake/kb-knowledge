@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Search accessible local files">
+    <meta name="api-base" content="/v1">
+    <title>Knowledge search</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="shell">
+        <p class="eyebrow">Local file search</p>
+        <h1>Find files you can access</h1>
+        <p class="lede">Search indexed local plaintext files. Results show limited source evidence.</p>
+      </div>
+    </header>
+
+    <main class="shell" id="main-content">
+      <section aria-labelledby="search-heading" class="search-panel">
+        <h2 id="search-heading">Search files</h2>
+        <form id="search-form" role="search">
+          <label for="query">Search terms</label>
+          <div class="search-row">
+            <input id="query" name="query" type="search" autocomplete="off" required aria-describedby="search-help">
+            <button type="submit">Search</button>
+          </div>
+          <p id="search-help" class="help">Use words from file names or content.</p>
+        </form>
+      </section>
+
+      <section aria-labelledby="results-heading" class="results-section" aria-live="polite" aria-busy="false">
+        <div class="section-heading">
+          <h2 id="results-heading">Results</h2>
+          <span id="result-count" class="muted"></span>
+        </div>
+        <p class="scope-note"><strong>Scope: synthetic local.</strong> Scope: local plaintext files. Local plaintext fixture results only. Service, not this page, decides access.</p>
+        <div id="status" class="status" role="status" hidden></div>
+        <ol id="results" class="results" aria-label="Search results"></ol>
+      </section>
+
+      <section aria-labelledby="status-heading" class="service-panel">
+        <div class="section-heading">
+          <h2 id="status-heading">Service status</h2>
+          <button id="status-button" type="button">Check status</button>
+        </div>
+        <p id="service-status" class="muted" role="status">Status has not been checked.</p>
+        <p class="help">Status reflects API response only. freshness timestamp may be unavailable. This page makes no access or freshness decisions.</p>
+      </section>
+
+      <aside class="coverage" aria-labelledby="coverage-heading">
+        <h2 id="coverage-heading">Pilot coverage</h2>
+        <ul>
+          <li><strong>Available:</strong> lexical search, source-scoped identity, safe source name, content version, provenance/evidence when supplied.</li>
+          <li><strong>Status labels:</strong> fresh, warning, stale, quarantined, permission unknown, tombstoned.</li>
+          <li><strong>Not supplied by current service:</strong> source opening, raw payloads, absolute paths, email and attachment search.</li>
+          <li><strong>Evidence limits:</strong> formal citations unavailable unless API supplies evidence.</li>
+          <li><strong>Not available:</strong> import and run controls; current API has no such routes.</li>
+          <li><strong>Admin view:</strong> unavailable; current API exposes no admin route.</li>
+          <li><strong>Scope:</strong> local demo only. UI never grants access; API authorization remains authoritative.</li>
+        </ul>
+      </aside>
+    </main>
+    <script src="app.js" defer></script>
+  </body>
+</html>
