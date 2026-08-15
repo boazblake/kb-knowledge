@@ -277,7 +277,9 @@ class PostgresAuthorityRepository:
         current = row[0] if row else 0
         if row and row[1] == "delete" and change.operation.value != "delete":
             return RevisionOutcome.STALE
-        if change.revision <= current:
+        if row and change.revision == current:
+            return RevisionOutcome.CONFLICT
+        if change.revision < current:
             return RevisionOutcome.STALE
         if change.revision > current + 1:
             conn.execute("""INSERT INTO ingestion_gaps
@@ -343,9 +345,9 @@ class PostgresAuthorityRepository:
                 ORDER BY sequence FOR UPDATE SKIP LOCKED LIMIT %s
             ) UPDATE ingestion_outbox o SET status='claimed', lease_owner=%s, lease_expires_at=now() + (%s * interval '1 second'), attempts=o.attempts+1
               FROM picked WHERE o.sequence=picked.sequence
-              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, limit, lease_token, lease_seconds)).fetchall()
+              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.envelope,o.attempts""", (tenant, workload, limit, lease_token, lease_seconds)).fetchall()
         return tuple({"sequence": r[0], "idempotency_key": r[1], "object_key": r[2],
-                      "payload": r[3], "attempts": r[4], "worker": worker, "lease_token": lease_token,
+                      "payload": r[3], "envelope": r[4], "attempts": r[5], "worker": worker, "lease_token": lease_token,
                       "tenant": tenant, "workload": workload} for r in rows)
 
     def mark_outbox_applied(self, sequence: int, worker: str, *, tenant: str, workload: str, lease_token: str) -> None:
@@ -374,11 +376,17 @@ class PostgresAuthorityRepository:
                 conn.execute("INSERT INTO ingestion_dead_letters(sequence,reason) VALUES (%s,%s) ON CONFLICT DO NOTHING",
                              (sequence, reason))
 
-    def retry_dead_letter(self, sequence: int, *, operator: str) -> None:
+    def retry_dead_letter(self, sequence: int, *, operator: Any) -> None:
         """Explicitly requeue one DLQ item; automatic replay remains disabled."""
-        if not operator.strip():
+        subject = getattr(operator, "subject", operator if isinstance(operator, str) else "")
+        if not isinstance(subject, str) or not subject.strip():
             raise ValueError("operator identity required")
         with self.transaction() as conn:
+            scope = conn.execute("SELECT tenant FROM ingestion_outbox WHERE sequence=%s AND status='dead'", (sequence,)).fetchone()
+            if not scope:
+                raise ValueError("dead-letter item is not replayable")
+            if hasattr(operator, "is_admin") and not operator.is_admin(scope[0]):
+                raise PermissionError("principal is not authorized for DLQ replay")
             count = conn.execute("""UPDATE ingestion_outbox
                 SET status='pending', attempts=0, available_at=now(), retry_at=NULL,
                     last_error=NULL, last_retry_delay_seconds=NULL,
@@ -390,7 +398,7 @@ class PostgresAuthorityRepository:
             conn.execute("""INSERT INTO ingestion_audit(event_id,action,actor,target,tenant)
                 SELECT 'dlq-replay:' || %s, 'dlq-replay', %s, idempotency_key, tenant
                 FROM ingestion_outbox WHERE sequence=%s
-                ON CONFLICT (event_id) DO NOTHING""", (sequence, operator, sequence))
+                ON CONFLICT (event_id) DO NOTHING""", (sequence, subject, sequence))
 
     # Purge lane: intent/receipts are PostgreSQL durable state, while provider
     # deletion remains owned by injected S3/cache/projection adapters.

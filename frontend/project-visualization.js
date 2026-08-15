@@ -2,6 +2,19 @@
   'use strict';
   const S = window.VISUALIZATION_STATUS;
   const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  if (!S || !S.evidenceRun || !S.p4) {
+    document.documentElement.dataset.snapshotState = 'failed';
+    const status = document.querySelector('#p4-status');
+    if (status) status.textContent = 'Reference snapshot unavailable. Showing safe empty state; no live or mutation state connected.';
+    const cityStatus = document.querySelector('#city-status');
+    if (cityStatus) cityStatus.textContent = 'Reference snapshot unavailable. Repository map not loaded.';
+    const ledger = document.querySelector('#p4-ledger');
+    if (ledger) ledger.innerHTML = '<tr><td colspan="3">Reference snapshot unavailable; no observation data rendered.</td></tr>';
+    const list = document.querySelector('#p4-list');
+    if (list) list.innerHTML = '<li>Reference snapshot unavailable; no observation data rendered.</li>';
+    return;
+  }
+  document.documentElement.dataset.snapshotState = S.p4.authoritySequence.state === 'stale' ? 'stale' : 'ready';
   const statusClass = value => value.toLowerCase();
   const components = [
     ['files','Local files','done','Prototype/reference fixtures and browser verification.','Qualify real source contract.'],
@@ -87,6 +100,6 @@
   S.horizons.forEach(horizon=>{ const items=roadmap.filter(row=>row[0]===horizon), lane=document.createElement('section'); lane.className='road-lane'; lane.innerHTML=`<h3>${esc(horizon)}</h3><div class="road-items">${items.map(row=>`<div class="road-item"><strong>${esc(row[1])}</strong><span class="${statusClass(row[2])}">${esc(row[2])}</span><small>${esc(row[3])}</small></div>`).join('')}</div>`; $('#roadmap-lanes').append(lane); });
   $('#roadmap-table').innerHTML=roadmap.map(row=>`<tr><td>${esc(row[0])}</td><th scope="row">${esc(row[1])}</th><td><span class="${statusClass(row[2])}">${esc(row[2])}</span></td><td>${esc(row[3])}</td></tr>`).join('');
   const cityColors={interface:'#168aad',service:'#6d4c9f',test:'#a85e16',knowledge:'#287052'};
-  city.forEach(([districtName,language,style,buildings])=>{ const district=document.createElement('section'); district.className='district'; district.style.setProperty('--district-color',cityColors[style]); district.innerHTML=`<h3>${esc(districtName)}</h3><p>${esc(language)} · ${buildings.length} buildings</p><div class="buildings"></div>`; const root=district.querySelector('.buildings'); buildings.forEach(([path,loc,tests,state,production])=>{ const b=document.createElement('button'); b.className='building'; b.style.height=`${Math.max(44,Math.sqrt(200/620)*145)}px`; b.style.background=cityColors[style]; b.textContent=path.split('/').pop(); b.setAttribute('aria-label',`${path}, ${loc}, ${state}`); b.addEventListener('click',()=>{$('#city-detail').innerHTML=`<h3>${esc(path.split('/').pop())}</h3><p>${esc(path)}</p><dl><div><dt>Scope</dt><dd>${esc(loc)}</dd></div><div><dt>Tests / checks</dt><dd>${esc(tests)}</dd></div><div><dt>Status</dt><dd>${esc(state)}</dd></div><div><dt>Production relevance</dt><dd>${esc(production)}</dd></div></dl>`;}); root.append(b); $('#city-table').insertAdjacentHTML('beforeend',`<tr><th scope="row">${esc(path)}</th><td>${esc(loc)}</td><td>${esc(tests)}</td><td><span class="${statusClass(state)}">${esc(state)}</span></td><td>${esc(production)}</td></tr>`); }); $('#city-map').append(district); });
+  city.forEach(([districtName,language,style,buildings])=>{ const district=document.createElement('section'); district.className='district'; district.style.setProperty('--district-color',cityColors[style]); district.innerHTML=`<h3>${esc(districtName)}</h3><p>${esc(language)} · ${buildings.length} buildings</p><div class="buildings"></div>`; const root=district.querySelector('.buildings'); buildings.forEach(([path,loc,tests,state,production])=>{ const b=document.createElement('button'); b.type='button'; b.className='building'; b.style.height=`${Math.max(44,Math.sqrt(200/620)*145)}px`; b.style.background=cityColors[style]; b.textContent=path.split('/').pop(); b.setAttribute('aria-label',`${path}, ${loc}, ${state}`); b.addEventListener('click',()=>{$('#city-detail').innerHTML=`<h3>${esc(path.split('/').pop())}</h3><p>${esc(path)}</p><dl><div><dt>Scope</dt><dd>${esc(loc)}</dd></div><div><dt>Tests / checks</dt><dd>${esc(tests)}</dd></div><div><dt>Status</dt><dd>${esc(state)}</dd></div><div><dt>Production relevance</dt><dd>${esc(production)}</dd></div></dl>`;}); root.append(b); $('#city-table').insertAdjacentHTML('beforeend',`<tr><th scope="row">${esc(path)}</th><td>${esc(loc)}</td><td>${esc(tests)}</td><td><span class="${statusClass(state)}">${esc(state)}</span></td><td>${esc(production)}</td></tr>`); }); $('#city-map').append(district); });
   $('#city-status').textContent='Map ready. Static evidence snapshot; live metrics and provider data unavailable.';
 })();

@@ -1,9 +1,9 @@
 {
   "schema": "kb-pipeline.phase4-qa-bdd-ledger.v1",
   "captured_at": "2026-08-15",
-  "commit": "e3710e33139d4f13545b158a97d1ea1292af700a",
+  "commit": "1656b0eb6c3758199babb7b9cc08598f39b274ad",
   "evidence_run": "phase4-20260815T214315Z-38130",
-  "git_status": "clean",
+  "git_status": "dirty-uncommitted",
   "runtime": {
     "nix_python": "Python 3.11.11",
     "node": "v22.16.0",
@@ -50,7 +50,7 @@
   "capture_deviation": "Screenshot capture was not available in temporary evidence; browser snapshot, accessibility, and network evidence were captured instead.",
   "deployment_and_scans": "No production deployment or production scans run.",
   "evidence_scope": "Executed QA covers Nix full suite, disposable PostgreSQL full suite, targeted Phase 4 checks, 21 labeled E2E/P4 scenarios, browser rendering, and accessibility checks. Evidence is repository-local and non-production.",
-  "scope_note": "Product brief E2E-001..E2E-010 and planner P4-01..P4-11 were not present as labeled source files. IDs below preserve requested scenario labels and map behaviors to available repository evidence; missing labeled specs remain a traceability gap.",
+  "scope_note": "Checked-in Given/When/Then source is docs/specs/phase4-p1-p2-backend.feature.md. Frontend/browser tests remain unchanged and are linked only as boundary evidence.",
   "runs": [
     {"id":"E2E-001","expected":"Authority commit feeds projection, PostgreSQL FTS/query, and barrier freshness.","observed":"Disposable PostgreSQL worker, FTS query, checkpoint, and fresh barrier checks passed.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e001_p4_03_worker_fts_and_projection_barrier"},
     {"id":"E2E-002","expected":"tenant/source/source_id identity isolates objects and provenance aliases.","observed":"Identity dimensions isolate in local and disposable PostgreSQL authority checks; collision fails closed.","status":"pass","evidence":"tests/test_p4_core.py; tests/test_phase4_qa.py; tests/test_p3_authority.py"},
@@ -75,9 +75,9 @@
     {"id":"P4-11","expected":"Frontend observation and accessibility checks pass; visualization remains observational.","observed":"Browser and accessibility checks passed; visualization remains read-only. Favicon 404 remains P3.","status":"pass","evidence":"frontend/project-visualization.html; frontend/project-visualization.js; tests/test_phase4_qa.py; agent-browser"}
   ],
   "summary": {
-    "nix_full_suite": "200 passed, 0 skipped",
-    "disposable_postgres_full_suite": "200 passed, 0 skipped",
-    "targeted_p4": "14 passed, 0 failed",
+    "nix_full_suite": "218 passed, 0 failed",
+    "disposable_postgres_full_suite": "218 passed, 0 failed",
+    "targeted_p4": "26 passed, 0 failed",
     "labeled_scenarios": "21/21 pass",
     "frontend_syntax": "pass",
     "browser_rendering": "pass",
@@ -86,13 +86,12 @@
     "coverage": "not measured"
   },
   "defects": [
-    {"severity":"P2","title":"Labeled E2E/P4 source specs unavailable","observed":"No E2E-001..E2E-010 or P4-01..P4-11 planner files found.","next_fix":"Add versioned brief/planner artifacts and link each ledger row to exact Given/When/Then acceptance text."},
     {"severity":"P3","title":"Visualization requests missing favicon","observed":"Browser network capture returned 404 for /favicon.ico; no console errors.","next_fix":"Add favicon or remove implicit request if desired; non-blocking observational defect."}
   ],
   "limitations": [
     "MOCK/REFERENCE only: no live provider calls, credentials, cloud infrastructure, production identity, production SLO/RPO/RTO, or production concurrency qualification.",
     "Frontend visualization is observational and read-only; it does not establish correctness.",
-    "P2 source-spec artifacts are absent, so scenario labels map to repository evidence rather than checked-in Given/When/Then source specs.",
+    "Scenario source specs cover checked-in backend Given/When/Then traceability; frontend browser coverage remains separate.",
     "Coverage was not measured."
   ]
 }

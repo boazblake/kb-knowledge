@@ -74,6 +74,8 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         cls.repository.close()
 
     def setUp(self):
+        # Close implicit read transactions from prior tests before TRUNCATE.
+        self.connection.commit()
         with self.connection.transaction():
             self.connection.execute("""TRUNCATE p4_document, p4_projection_checkpoints, p4_identity_aliases, ingestion_authority,
                 ingestion_outbox, ingestion_dead_letters, ingestion_audit, ingestion_idempotency RESTART IDENTITY""")
@@ -295,7 +297,8 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         self.apply(self.envelope(), sequence=1)
         with self.connection.transaction():
             self.connection.execute("""INSERT INTO ingestion_outbox
-                (idempotency_key,object_key,tenant,workload,payload) VALUES ('new','new','tenant-a','docs',%s)""", (Jsonb({}),))
+                (idempotency_key,object_key,tenant,workload,payload) VALUES
+                ('new','new','tenant-a','docs',%s), ('newer','newer','tenant-a','docs',%s)""", (Jsonb({}), Jsonb({})))
         with self.assertRaises(TimeoutError):
             PostgresFTSQueryService(self.connection).search(
                 Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "searchable", source="docs")
@@ -360,7 +363,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         self.apply(envelope)
         self.authority(envelope.semantic_key, 1)
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        result = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs")[0]
+        result = PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier()).search(principal, "alpha", source="docs")[0]
         with self.connection.transaction():
             self.connection.execute("UPDATE ingestion_authority SET raw_object_uri=%s,content_hash=%s",
                                     (result.citation["raw_reference"]["uri"],
