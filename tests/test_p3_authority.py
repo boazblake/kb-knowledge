@@ -2,6 +2,7 @@ import os
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from kb_pipeline.nango_adapter import FakeNangoTransport, NangoAdapter, NangoPoll
 from kb_pipeline.postgres_authority import MigrationRunner, PostgresAuthorityRepository, PostgresUnavailable
@@ -59,19 +60,23 @@ class P3AuthorityUnitTests(unittest.TestCase):
         from kb_pipeline.domain import ACL, CanonicalDocument, SourceVersion
         from kb_pipeline.protocol import CanonicalChange, Operation, PermissionState, ProvenanceLink
         repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
-        source = IdentityNamespace("github", "tenant-p3", connector="nango", source_instance="conn")
+        suffix = uuid4().hex
+        tenant = f"tenant-p3-{suffix}"
+        workload = f"nango-{suffix}"
+        source = IdentityNamespace("github", tenant, connector=workload, source_instance=f"conn-{suffix}")
+        object_id = f"obj-{suffix}"
         observed = datetime.now(timezone.utc)
-        document = CanonicalDocument("obj", SourceVersion("obj", "1", "nango://obj", observed, "hash"),
+        document = CanonicalDocument(object_id, SourceVersion(object_id, "1", "nango://obj", observed, "hash"),
                                      "title", "body", ACL(frozenset({"reader"})))
         def change(revision, key):
-            return CanonicalChange("obj", source, revision, Operation.UPSERT, document, key,
+            return CanonicalChange(object_id, source, revision, Operation.UPSERT, document, key,
                                    ProvenanceLink("test", key), PermissionState(document.acl), occurred_at=observed)
         try:
             repo.open()
-            self.assertEqual("accepted", repo.accept(change(1, "p3-1"), raw_object_uri="nango://obj", content_hash="hash").value)
-            self.assertEqual("duplicate", repo.accept(change(1, "p3-1"), raw_object_uri="nango://obj", content_hash="hash").value)
-            self.assertEqual("gap", repo.accept(change(3, "p3-3"), raw_object_uri="nango://obj", content_hash="hash").value)
-            claimed = repo.claim_outbox("test")
+            self.assertEqual("accepted", repo.accept(change(1, f"{suffix}-1"), raw_object_uri="nango://obj", content_hash="hash").value)
+            self.assertEqual("duplicate", repo.accept(change(1, f"{suffix}-1"), raw_object_uri="nango://obj", content_hash="hash").value)
+            self.assertEqual("gap", repo.accept(change(3, f"{suffix}-3"), raw_object_uri="nango://obj", content_hash="hash").value)
+            claimed = repo.claim_outbox("test", tenant=tenant, workload=workload)
             self.assertEqual(1, len(claimed))
             repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", max_attempts=1)
         finally:
