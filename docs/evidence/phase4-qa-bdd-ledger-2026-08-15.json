@@ -1,9 +1,14 @@
 {
   "schema": "kb-pipeline.phase4-qa-bdd-ledger.v1",
   "captured_at": "2026-08-15",
-  "commit": "397911e01029c8e626d98b9661263f8a2f7ff00c",
+  "tested_commit": "397911e01029c8e626d98b9661263f8a2f7ff00c",
   "evidence_run": "phase4-20260815T214315Z-38130",
-  "git_status": "dirty-uncommitted",
+  "evidence_revision": "phase4-20260815T214315Z-38130-r2",
+  "tested_tree_status": "clean",
+  "artifact_metadata": {
+    "path": "docs/evidence/phase4-qa-bdd-ledger-2026-08-15.json",
+    "artifact_commit": null
+  },
   "runtime": {
     "nix_python": "Python 3.11.11",
     "node": "v22.16.0",

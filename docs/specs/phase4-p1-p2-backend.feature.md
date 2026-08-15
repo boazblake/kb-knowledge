@@ -48,7 +48,7 @@ executable tests, not narrative evidence.
 **Test:** [`test_p4011_dlq_replay_authorized_vs_unauthorized_principal`](../../tests/test_p1_p2_backend_bdd.py)
 
 ### E2E-008 — evidence traceability
-**Given** checked-in scenario ledger names current commit and ledger fields
+**Given** checked-in scenario ledger names exact clean `tested_commit`, evidence revision, and ledger fields
 **When** validator runs
 **Then** every scenario resolves to an executable test
 **Test:** [`test_phase4_bdd_evidence_validator`](../../tests/test_phase4_evidence.py)
@@ -78,5 +78,5 @@ executable tests, not narrative evidence.
 | P4-07 | Given delete tombstone; When stale replay arrives; Then no resurrection | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e004_delete_no_resurrection` |
 | P4-08 | Given citation; When hash, revision, ACL, or tombstone mismatches; Then verification fails | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e006_citation_tombstone_source_scope_rejection` |
 | P4-09 | Given terminal DLQ; When unauthorized/authorized Principal replays; Then terminal state, recovery, watermark advancement, and authority immutability are observable | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone` |
-| P4-10 | Given evidence ledger; When validator runs; Then current commit and production boundary are checked | `tests/test_phase4_evidence.py::test_phase4_bdd_evidence_validator` |
+| P4-10 | Given evidence ledger; When validator runs; Then tested commit ancestry, clean-tree execution, exact runtime/schema/commands, and production boundary are checked | `tests/test_phase4_evidence.py::test_phase4_bdd_evidence_validator` |
 | P4-11 | Given frontend observation and accessibility checks run; When browser BDD executes; Then read-only, no-mutation, stale, failed-state, and accessibility assertions remain separate from backend evidence | [`tests/frontend_project_visualization_bdd.sh`](../../tests/frontend_project_visualization_bdd.sh) — assertions `Given read-only visualization...`, `When page loads...no mutation network request`, `Given keyboard focus...`, `Given visual alternatives...`, `Given stale reference state...`, `Given failed snapshot delivery...` |

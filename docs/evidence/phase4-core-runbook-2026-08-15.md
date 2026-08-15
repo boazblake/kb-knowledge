@@ -2,9 +2,11 @@
 
 `production_qualification=false`.
 
-Evidence run: `phase4-20260815T214315Z-38130` at repository HEAD
-`397911e01029c8e626d98b9661263f8a2f7ff00c`; metadata status is
-`dirty-uncommitted` because evidence updates are not code commits.
+Evidence run: `phase4-20260815T214315Z-38130`, revision `r2`, executed against
+clean code commit `397911e01029c8e626d98b9661263f8a2f7ff00c`. Current HEAD may
+contain later code commits; validator requires `tested_commit` to be its ancestor.
+Ledger artifact is currently uncommitted (`artifact_commit=null`); this metadata
+change must not be confused with execution-tree cleanliness.
 
 ## Scope and limitations
 
@@ -21,7 +23,8 @@ Given/When/Then source specs. Frontend remains observational and read-only.
 
 | Field | Current fact |
 |---|---|
-| Commit | `397911e01029c8e626d98b9661263f8a2f7ff00c` |
+| Tested commit | `397911e01029c8e626d98b9661263f8a2f7ff00c` |
+| Tested tree | Clean |
 | Evidence run | `phase4-20260815T214315Z-38130` |
 | Runtime | Nix Python 3.11.11; Node v22.16.0; disposable PostgreSQL 16; HeadlessChrome 149 |
 | Schema | `migrations/006_phase4_projection.sql` |
