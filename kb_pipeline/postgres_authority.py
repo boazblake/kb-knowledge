@@ -470,6 +470,10 @@ class PostgresIngestionService:
         if not reference:
             raise LookupError("authoritative raw object unavailable")
         uri, content_hash, revision, _operation = reference
+        if isinstance(uri, (bytes, bytearray, memoryview)):
+            uri = bytes(uri).decode("utf-8")
+        if isinstance(content_hash, (bytes, bytearray, memoryview)):
+            content_hash = bytes(content_hash).decode("utf-8")
         parsed = urlsplit(uri)
         if parsed.scheme != "s3" or parsed.netloc != getattr(self.raw_storage, "bucket", parsed.netloc):
             raise ValueError("raw object store mismatch")

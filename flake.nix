@@ -15,7 +15,7 @@
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
+          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.python311Packages.pyjwt pkgs.python311Packages.psycopg pkgs.python311Packages.psycopg-pool pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
         in {
           default = pkgs.mkShell {
             packages = runtimeInputs;
@@ -29,7 +29,7 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
+          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.python311Packages.pyjwt pkgs.python311Packages.psycopg pkgs.python311Packages.psycopg-pool pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
         in {
           default = pkgs.writeShellApplication {
             name = "kb-pipeline-check";
@@ -46,7 +46,7 @@
       apps = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
+          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.boto3 pkgs.python311Packages.cryptography pkgs.python311Packages.pyjwt pkgs.python311Packages.psycopg pkgs.python311Packages.psycopg-pool pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
           benchmarkScript = pkgs.writeShellApplication {
             name = "kb-pipeline-benchmark";
             inherit runtimeInputs;
@@ -124,7 +124,7 @@
       checks = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          runtimeInputs = [ pkgs.python311 pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
+          runtimeInputs = [ pkgs.python311 pkgs.python311Packages.pyjwt pkgs.python311Packages.psycopg pkgs.python311Packages.psycopg-pool pkgs.postgresql_16 pkgs.nodejs_22 pkgs.sqlite pkgs.git pkgs.jq pkgs.coreutils ];
         in {
           default = pkgs.runCommand "kb-pipeline-check" {
             src = ./.;
