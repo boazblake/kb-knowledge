@@ -1,22 +1,23 @@
 /* Shared visualization facts. Keep mirrored in visualization-status.json. */
 window.VISUALIZATION_STATUS = Object.freeze({
-  snapshot: 'backend remediation + latest PostgreSQL validation',
+  snapshot: 'b80da6c + d955b2c + edd8f23',
   decision: 'Production NO-GO',
-  remediationStage: 'PARTIAL',
-  provider: { endpointsConfigured: false, credentialsConfigured: false, liveCalls: 0, boundary: { run: 0, pass: 0, skipped: 0 } },
-  suite: { run: 185, pass: 174, skipped: 11 },
-  postgresValidation: { latestRun: 37, latestPass: 36, issuesFixed: 2, freshRerunPending: true },
-  remediation: ['Batch atomicity implemented', 'Connector cursor comparator/version implemented', 'Staged raw lifecycle, orphan registry, and sweeper implemented', 'Lease-owner retry metadata implemented', 'Canonical ObjectKey purge namespace implemented', 'Migration 005 added for canonical ObjectKey storage'],
+  remediationStage: 'GREEN — local evidence',
+  provider: { endpointsConfigured: false, credentialsConfigured: false, liveCalls: 0, externalConnector: false, absent: ['KMS', 'S3', 'OIDC', 'Temporal', 'OTel'] },
+  suite: { run: 5, pass: 5, skipped: 0 },
+  postgresValidation: { latestRun: 21, latestPass: 21, customChecksRun: 5, customChecksPass: 5, migrations: '001-005 idempotent' },
+  remediation: ['Batch atomicity validated', 'Cursor comparator validated', 'Staged raw / orphan lifecycle validated', 'Outbox ownership / retry validated', 'Canonical purge namespace validated'],
   statuses: ['DONE', 'PARTIAL', 'BLOCKED', 'DEFERRED'],
   horizons: ['Prototype/reference', 'Production-shaped non-prod', 'Production qualification/release'],
   evidence: [
-    'Frontend browser verification', 'Local full suite: 174 passed / 11 skipped',
-    'PostgreSQL validation: 36/37; two issues fixed; fresh rerun pending',
-    'Migration 005 review', 'Remediation tests'
+    'Commits: b80da6c, d955b2c, edd8f23',
+    'PostgreSQL targeted authority/purge/recovery matrix: 21/21 passed',
+    'Custom remediation checks: 5/5 passed', 'Migrations 001-005 idempotent',
+    'Batch atomicity, cursor comparator, staged raw/orphan lifecycle, outbox ownership/retry, canonical purge namespace validated'
   ],
-  missingNonProd: ['Live provider endpoints', 'Provider credentials', 'PostgreSQL fresh rerun', 'Deployment'],
-  missingProduction: ['Live providers/endpoints/credentials', 'Purge/recovery rehearsal', 'Load/SLO evidence', 'RPO/RTO', 'SEC/OPS approval'],
-  next: 'Rerun fresh PostgreSQL failure/recovery matrix.'
+  missingNonProd: ['Configured non-prod OIDC/KMS/S3/Temporal/OTel endpoints', 'External connector environment'],
+  missingProduction: ['Live KMS/S3/OIDC/Temporal/OTel', 'External connector', 'Production load/SLO', 'RPO/RTO', 'Recovery rehearsal', 'SEC/OPS approval'],
+  next: 'External provider environment integration (OIDC/KMS/S3/Temporal/OTel) using configured non-prod endpoints only.'
 });
 
 function visualizationStatus() { return window.VISUALIZATION_STATUS; }

@@ -1,21 +1,24 @@
+const S = window.VISUALIZATION_STATUS || {snapshot:'b80da6c + d955b2c + edd8f23',provider:{liveCalls:0}};
 const stages = [
-  {label:'Input', prototype:'COMPLETE', adoption:'DEFERRED', evidence:'PARTIAL', tests:'Local file scan and UTF-8 canonicalization; narrow fixture coverage.', files:'kb_pipeline/adapters.py, kb_pipeline/ingestion_slice.py', commit:'7de5dbaa', blockers:'Real business sources and connector approval absent.', next:'Define supported source contract before pilot.', deferred:'Email, MIME, attachments, external source onboarding.'},
-  {label:'Connector', prototype:'PARTIAL', adoption:'DEFERRED', evidence:'UNPROVEN', tests:'Nango adapter contract experiment only.', files:'kb_pipeline/nango_adapter.py, kb_pipeline/production_adapters.py', commit:'00cbc646', blockers:'Production identity, KMS, live provider evidence absent.', next:'Qualify one connector with production auth and evidence.', deferred:'Broad connector catalog and sync guarantees.'},
-  {label:'Canonical Model', prototype:'COMPLETE', adoption:'UNPROVEN', evidence:'PARTIAL', tests:'Canonical change, idempotency, conflict quarantine fixtures.', files:'kb_pipeline/domain.py, kb_pipeline/protocol.py, kb_pipeline/composition.py', commit:'445a5163', blockers:'Real-data semantics and migration evidence absent.', next:'Run supported-runtime qualification against approved data contract.', deferred:'Vectors, relationships, expanded domain projections.'},
-  {label:'Knowledge Engine', prototype:'PARTIAL', adoption:'BLOCKED', evidence:'UNPROVEN', tests:'SQLite/FTS and local recovery rehearsal; tests do not establish readiness.', files:'kb_pipeline/service.py, kb_pipeline/storage.py, kb_pipeline/postgres_authority.py', commit:'ce63ede', blockers:'KMS/S3/Temporal/OTel live evidence; purge, load, SLO, RPO/RTO absent.', next:'Produce production recovery, load, observability, and authority evidence.', deferred:'Production orchestration and multi-writer guarantees.'},
-  {label:'Output', prototype:'PARTIAL', adoption:'BLOCKED', evidence:'UNPROVEN', tests:'Local search/report UI and API smoke checks.', files:'kb_pipeline/api.py, frontend/index.html, frontend/app.js', commit:'ce63ede', blockers:'Production hosting, access boundary, SLO and on-call evidence absent.', next:'Qualify supported deployment and consumer contracts.', deferred:'Web Search UI scale, MCP, chat, agents, reporting consumers.'},
-  {label:'Identity & Access', prototype:'PARTIAL', adoption:'BLOCKED', evidence:'UNPROVEN', tests:'OIDC/JWKS boundary code and fake adapter tests.', files:'kb_pipeline/security.py, kb_pipeline/production_adapters.py', commit:'00cbc646', blockers:'OIDC/JWKS live evidence absent; KMS live evidence absent.', next:'Capture live JWKS rotation and production KMS evidence.', deferred:'Production role and tenant policy rollout.'},
-  {label:'Observability', prototype:'DEFERRED', adoption:'BLOCKED', evidence:'UNPROVEN', tests:'No live OTel evidence.', files:'docs/phase2-sre-review.md, docs/pilot-readiness.md', commit:'—', blockers:'OTel, SLOs, alerts, and on-call rehearsal absent.', next:'Instrument OTel and run alert/SLO rehearsal.', deferred:'Advanced tracing and health dashboards.'},
-  {label:'Backup & Resilience', prototype:'PARTIAL', adoption:'BLOCKED', evidence:'UNPROVEN', tests:'Synthetic-local recovery only; no production RPO/RTO evidence.', files:'kb_pipeline/gate6_recovery.py, docs/runbook.md', commit:'ce63ede', blockers:'Purge, recovery, load, RPO and RTO qualification absent.', next:'Run supported production-like backup/restore qualification.', deferred:'Cross-region resilience and disaster automation.'},
-];
-const statusClass = s => s.toLowerCase();
+  ['Input','DONE','DONE','PARTIAL','Frontend browser verification; local file scan.','Approved source contract absent.'],
+  ['Connector','PARTIAL','DEFERRED','PARTIAL','Contract experiment only; zero live calls.','Approved connector and disposable provider absent.'],
+  ['Canonical Model','DONE','DEFERRED','PARTIAL','Protocol, idempotency, quarantine fixtures.','Real-data qualification absent.'],
+  ['Knowledge Engine','PARTIAL','BLOCKED','DONE','PostgreSQL authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','KMS/S3/Temporal/OTel live evidence and production RPO/RTO absent.'],
+  ['Output','PARTIAL','BLOCKED','PARTIAL','Frontend browser verification; local search/report.','Approved deployment and production SLO absent.'],
+  ['Identity & Access','PARTIAL','BLOCKED','PARTIAL','OIDC local JWKS packet.','Live OIDC provider and tenant evidence absent.'],
+  ['Observability','PARTIAL','BLOCKED','PARTIAL','Local contract evidence only.','Live OTel, alerts, on-call, production load/SLO absent.'],
+  ['Backup & Resilience','PARTIAL','BLOCKED','PARTIAL','Purge/recovery tests; synthetic-local only.','Provider rehearsal and RPO/RTO absent.']
+].map(([label, prototype, adoption, evidence, tests, blockers]) => ({label, prototype, adoption, evidence, tests, blockers}));
+const statusClass = status => status.toLowerCase();
 const grid = document.querySelector('#stage-grid');
-const complete = stages.filter(s => s.evidence === 'COMPLETE').length;
-document.querySelector('#completion-value').textContent = `${Math.round(complete / 15 * 100)}%`;
-document.querySelector('#completion-fill').style.width = `${complete / 15 * 100}%`;
-document.querySelector('#completion-method').textContent = `${complete} / 15 obligations evidenced. Prototype status and test count excluded.`;
+const done = stages.filter(stage => stage.evidence === 'DONE').length;
+const denominator = 15;
+document.querySelector('#completion-value').textContent = `${Math.round(done / denominator * 100)}%`;
+document.querySelector('#completion-fill').style.width = `${done / denominator * 100}%`;
+document.querySelector('#completion-method').textContent = `${done} / ${denominator} named production qualification obligations evidenced; test counts excluded.`;
 stages.forEach((stage, index) => {
-  const article = document.createElement('article'); article.className = 'stage-card'; article.tabIndex = 0;
-  article.innerHTML = `<div class="stage-title"><span class="stage-index">${String(index + 1).padStart(2, '0')}</span><h3>${stage.label}</h3></div><div class="status-columns"><div><span class="field-label">Prototype implementation</span><span class="status-chip ${statusClass(stage.prototype)}">${stage.prototype}</span></div><div><span class="field-label">Production adoption</span><span class="status-chip ${statusClass(stage.adoption)}">${stage.adoption}</span></div><div><span class="field-label">Evidence</span><span class="status-chip ${statusClass(stage.evidence)}">${stage.evidence}</span></div></div><dl class="stage-details"><div><dt>Tests / checks</dt><dd>${stage.tests}</dd></div><div><dt>Relevant files</dt><dd><code>${stage.files}</code></dd></div><div><dt>Commit / checkpoint</dt><dd><code>${stage.commit}</code></dd></div><div><dt>Open blockers</dt><dd>${stage.blockers}</dd></div><div><dt>Next action</dt><dd>${stage.next}</dd></div><div><dt>Deferred scope</dt><dd>${stage.deferred}</dd></div></dl>`;
+  const article = document.createElement('article');
+  article.className = 'stage-card'; article.tabIndex = 0;
+  article.innerHTML = `<div class="stage-title"><span class="stage-index">${String(index + 1).padStart(2, '0')}</span><h3>${stage.label}</h3></div><div class="status-columns"><div><span class="field-label">Prototype/reference</span><span class="status-chip ${statusClass(stage.prototype)}">${stage.prototype}</span></div><div><span class="field-label">Production adoption</span><span class="status-chip ${statusClass(stage.adoption)}">${stage.adoption}</span></div><div><span class="field-label">Evidence</span><span class="status-chip ${statusClass(stage.evidence)}">${stage.evidence}</span></div></div><dl class="stage-details"><div><dt>Local/narrow evidence</dt><dd>${stage.tests}</dd></div><div><dt>Production blockers</dt><dd>${stage.blockers}</dd></div><div><dt>Snapshot</dt><dd><code>${S.snapshot}</code></dd></div></dl>`;
   grid.append(article);
 });

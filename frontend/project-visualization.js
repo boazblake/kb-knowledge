@@ -5,33 +5,33 @@
   const statusClass = value => value.toLowerCase();
   const components = [
     ['files','Local files','done','Prototype/reference fixtures and browser verification.','Qualify real source contract.'],
-    ['connectors','Connectors','partial','Cursor comparator/version: nango-numeric-v1. No live endpoint or credentials.','Provision approved provider and validate connector.'],
-    ['sync','Batch sync + workflow','partial','Batch atomicity implemented; workflow remains un-deployed.','Fresh PostgreSQL failure/recovery validation.'],
-    ['staged-raw','Staged raw lifecycle','partial','Staging, orphan registry, and bounded sweeper implemented.','Live KMS/S3 and provider rehearsal.'],
-    ['authority','PostgreSQL authority','partial','Latest validation 36/37; two issues fixed; fresh rerun pending. Migration 005.','Pass fresh failure/recovery matrix.'],
+    ['connectors','Connectors','partial','Cursor comparator validated; external connector absent.','Use configured non-prod provider environment.'],
+    ['sync','Batch sync + workflow','partial','Batch atomicity validated; live Temporal absent.','Use configured non-prod provider environment.'],
+    ['staged-raw','Staged raw lifecycle','partial','Staged raw and orphan lifecycle validated; live KMS/S3 absent.','Use configured non-prod provider environment.'],
+    ['authority','PostgreSQL authority','done','Targeted authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','Production qualification remains open.'],
     ['canonical','Canonical ObjectKey purge namespace','done','Canonical namespace includes provider, tenant, connector, source instance, object ID.','Production purge and retention evidence.'],
     ['retrieval','Retrieval + query','done','Local ACL-filtered lexical search/report.','Production hosting and SLO evidence.'],
     ['answer','Answer boundary','deferred','Prototype UI contract; model/provider deferred.','Provider, citation, and groundedness qualification.'],
     ['consumers','Consumers','partial','One-page hub and static report consumer.','Deployment, access, and on-call evidence.']
   ];
   const dependencies = [
-    ['Ingestion',[['Local files','done','Prototype fixtures','Real source contract'],['Connector cursor comparator/version','partial','Connector contract','Live provider validation'],['Batch atomicity','partial','Local remediation tests','Fresh PostgreSQL matrix']]],
-    ['Processing',[['Staged raw lifecycle','partial','Migration 004/raw contracts','Live KMS/S3'],['Orphan registry / sweeper','partial','Bounded local implementation','Provider failure rehearsal'],['Canonical ObjectKey purge','done','Migration 005 and namespace tests','Production purge evidence']]],
-    ['Storage / reliability',[['PostgreSQL authority','partial','36/37 latest validation; two issues fixed','Fresh rerun'],['Lease-owner retry metadata','done','Retry ownership and attempt metadata','Production workload evidence'],['Fresh failure/recovery matrix','partial','Latest run incomplete','Next roadmap item']]],
-    ['Production readiness',[['Live providers / endpoints / credentials','blocked','None configured','Non-production provider environment'],['SEC/OPS','blocked','Explicit NO-GO','Approval evidence'],['Production deployment','blocked','No live deployment','Release and on-call evidence']]]
+    ['Ingestion',[['Local files','done','Prototype fixtures','Real source contract'],['Connector cursor comparator/version','done','Local validation','External connector environment'],['Batch atomicity','done','21/21 targeted matrix','External provider environment']]],
+    ['Processing',[['Staged raw lifecycle','done','Local validation','Non-prod KMS/S3'],['Orphan registry / sweeper','done','Local validation','Non-prod provider failure rehearsal'],['Canonical ObjectKey purge','done','Canonical purge namespace validated','Production purge evidence']]],
+    ['Storage / reliability',[['PostgreSQL authority','done','21/21 matrix; 5/5 custom checks','Production qualification'],['Lease-owner retry metadata','done','Outbox ownership/retry validated','Production workload evidence'],['Migrations 001-005','done','Idempotency validated','Production deployment evidence']]],
+    ['Production readiness',[['Live providers / endpoints / credentials','blocked','KMS/S3/OIDC/Temporal/OTel absent','External provider environment integration'],['SEC/OPS','blocked','Explicit NO-GO','Approval evidence'],['Production deployment','blocked','No live deployment','Release and on-call evidence']]]
   ];
   const roadmap = [
     ['Prototype/reference','Local fixtures and one-page hub','DONE','Browser-rendered reference evidence; not production.'],
-    ['Prototype/reference','Backend remediation set','PARTIAL','Atomicity, cursor semantics, staged raw/orphans, lease metadata, ObjectKey purge namespace implemented.'],
-    ['Production-shaped non-prod','PostgreSQL authority validation','PARTIAL','36/37 latest; two issues fixed; fresh rerun pending.'],
-    ['Production-shaped non-prod','Live provider environment','BLOCKED','Live providers, endpoints, and credentials absent.'],
+    ['Prototype/reference','Backend remediation set','DONE','Atomicity, cursor semantics, staged raw/orphans, outbox ownership/retry, and canonical purge namespace locally validated.'],
+    ['Production-shaped non-prod','PostgreSQL authority validation','DONE','21/21 targeted matrix; 5/5 custom checks; migrations 001-005 idempotent.'],
+    ['Production-shaped non-prod','External provider environment integration','BLOCKED','Exactly one next item: configured non-prod OIDC/KMS/S3/Temporal/OTel endpoints only.'],
     ['Production qualification/release','SEC/OPS and production release','BLOCKED','SEC/OPS NO-GO; deployment, RPO/RTO, SLO, and approval evidence absent.']
   ];
   const city = [
     ['frontend','HTML/CSS/JS','interface',[['frontend/project-visualization.html','Hub shell','browser rendering','PARTIAL','primary prototype/reference visualization'],['frontend/project-visualization.js','Hub renderer','browser rendering','PARTIAL','primary prototype/reference visualization'],['frontend/visualization-status.json','Shared facts','JSON parse','DONE','shared status data; not production evidence']]],
-    ['kb_pipeline','Python','service',[['kb_pipeline/postgres_authority.py','PostgreSQL authority','local tests','PARTIAL','latest 36/37; fresh rerun pending'],['kb_pipeline/nango_adapter.py','Connector adapter','remediation tests','PARTIAL','cursor comparator/version; live provider absent'],['kb_pipeline/protocol.py','Canonical protocol','local tests','DONE','ObjectKey namespace and batch contract']]],
+    ['kb_pipeline','Python','service',[['kb_pipeline/postgres_authority.py','PostgreSQL authority','21/21 matrix; 5/5 custom checks','DONE','local evidence; production qualification absent'],['kb_pipeline/nango_adapter.py','Connector adapter','remediation checks','DONE','cursor comparator/version validated; external connector absent'],['kb_pipeline/protocol.py','Canonical protocol','local tests','DONE','canonical purge namespace and batch contract']]],
     ['migrations','SQL','service',[['migrations/004_ingestion_remediation.sql','Staged raw lifecycle','migration review','PARTIAL','orphan registry/sweeper; live storage absent'],['migrations/005_canonical_object_keys.sql','Canonical ObjectKey','migration review','DONE','purge namespace migration']]],
-    ['tests','Python','test',[['tests/test_remediation_lane.py','Remediation lane','passing','PARTIAL','local validation; PostgreSQL rerun pending'],['tests/test_phase4_qa.py','Atomic acceptance','passing','PARTIAL','local full suite only']]],
+    ['tests','Python','test',[['tests/test_remediation_lane.py','Remediation lane','5/5 passing','DONE','custom local validation'],['tests/test_phase4_qa.py','Atomic acceptance','21/21 passing','DONE','targeted local matrix']]],
     ['docs','Markdown','knowledge',[['docs/pilot-readiness.md','Pilot readiness','reviewed','BLOCKED','SEC/OPS NO-GO'],['docs/runbook.md','Runbook','reviewed','PARTIAL','production rehearsal absent']]]
   ];
   function $(selector) { return document.querySelector(selector); }
