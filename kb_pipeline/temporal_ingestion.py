@@ -135,7 +135,12 @@ async def reconcile_outbox(repository: Any, boundary: Any, *, worker: str,
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            repository.mark_outbox_failed(row["sequence"], f"Temporal start failed: {type(exc).__name__}")
+            failure = f"Temporal start failed: {type(exc).__name__}"
+            if "worker" in row:
+                repository.mark_outbox_failed(row["sequence"], failure, row["worker"])
+            else:
+                # Compatibility with older repository rows; PostgreSQL claims always include worker.
+                repository.mark_outbox_failed(row["sequence"], failure)
             if telemetry: telemetry.counter("workflow.retry", tenant=tenant, workload=workload, retryable=True)
     return started
 

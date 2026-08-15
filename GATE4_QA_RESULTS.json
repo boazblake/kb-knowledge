@@ -8,7 +8,7 @@
     "manifest_sha256": "099725b2ba439464cefc0787b514241a10307dda1c58f21f3181e3b95df47ca7",
     "captured_at": "2026-08-13T00:00:00Z"
   },
-  "test_count": 60,
+  "test_count": 66,
   "suite_version": "0.1.0",
   "environment": {
     "python": "3.9",

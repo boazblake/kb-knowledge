@@ -13,6 +13,10 @@ complete provenance, email connector, or attachment extraction.
 
 ### Phase 5 status
 
+Synthetic Nango adapter is **EXPERIMENT only**, not production adoption. Adapter
+contract scenarios pass. Local ledger remains authority; Nango cache is not an
+archive. Current evidence records **66 serial tests pass**.
+
 Stable delivered spine: versioned envelopes and canonical changes; identity
 namespace fields; revision/idempotency handling; provenance and permission links;
 ledger, state, projection, query, and capability contracts; and replay-shaped
@@ -23,6 +27,9 @@ Local synthetic protocol-demo is usable for contract demonstrations only.
 
 **Real-data pilot: NO-GO.** Blockers: ledger authority/outbox, namespace/auth
 isolation, replay/checkpoints, purge/recovery, API/UI integration, and observability.
+Adapter limitations remain around revisions, raw retention, permissions, replay,
+purge, and credentials. Concurrent fixed-port test execution has known **P2
+collision**.
 
 Do not interpret target diagrams or future-facing contract lists below as delivered
 capability. See `docs/architecture.md` for node mapping, `docs/pilot-readiness.md`, and

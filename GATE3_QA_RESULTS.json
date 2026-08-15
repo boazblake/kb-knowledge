@@ -1,0 +1,31 @@
+{
+  "schema": "kb-pipeline.gate3-evidence.v1",
+  "gate": 3,
+  "validation_owner": "QA",
+  "provenance": {
+    "source": "executed",
+    "manifest": "tests/test_manifest.json",
+    "manifest_sha256": "099725b2ba439464cefc0787b514241a10307dda1c58f21f3181e3b95df47ca7",
+    "captured_at": "2026-08-13"
+  },
+  "environment": {"python": "3.11.12", "python_source": "nixpkgs#python311", "node": "v24.18.1", "platform": "darwin", "suite_version": "0.1.0"},
+  "commands": [
+    {"command": "nix shell nixpkgs#python311 --command python -m unittest discover", "runs": 2, "result": "pass", "tests_per_run": 66},
+    {"command": "nix shell nixpkgs#python311 --command python -m compileall -q kb_pipeline tests", "result": "pass"},
+    {"command": "node --check frontend/app.js", "result": "pass"},
+    {"command": "nix shell nixpkgs#python311 --command python -m unittest tests.test_protocol tests.test_gate3_runtime", "result": "pass", "tests": 15},
+    {"command": "nix shell nixpkgs#python311 --command python -m kb_pipeline.cli serve TMP/db.sqlite --source-root TMP --port 0; GET /v1/health /v1/ready /", "result": "pass", "observed_statuses": [200, 200, 200]}
+  ],
+  "scenario_results": [
+    {"id": "G3-composition", "status": "pass", "tests": ["test_phase4_qa.Phase4BackendQA.test_query_limits_and_capability_composition_fail_closed"]},
+    {"id": "G3-launcher", "status": "pass", "tests": ["launcher smoke with --port 0"]},
+    {"id": "G3-api", "status": "pass", "tests": ["test_gate3_runtime.Gate3RuntimeTests.test_clean_start_serves_ui_and_separates_health_readiness", "test_phase4_qa.Phase4BackendQA.test_api_requires_identity_and_returns_query_contract"]},
+    {"id": "G3-ui", "status": "pass", "tests": ["test_phase4_qa.Phase4FrontendQA.test_ui_uses_same_origin_v1_routes_without_client_auth_bypass", "test_phase4_qa.Phase4FrontendQA.test_ui_escapes_result_content_and_honestly_disclaims_unsupported_features"]},
+    {"id": "G3-readiness", "status": "pass", "tests": ["test_gate3_runtime.Gate3RuntimeTests.test_clean_start_serves_ui_and_separates_health_readiness"]},
+    {"id": "G3-auth", "status": "pass", "tests": ["test_gate3_runtime.Gate3RuntimeTests.test_ui_bootstrap_cookie_authenticates_exact_api_routes", "test_gate3_runtime.Gate3RuntimeTests.test_api_state_is_per_server"]},
+    {"id": "G3-path-redaction", "status": "pass", "tests": ["test_gate3_runtime.Gate3RuntimeTests.test_search_dto_redacts_uri_and_exposes_provenance_contract"]}
+  ],
+  "coverage": {"manifest_tests": 66, "full_unittest_passes": 2, "target": "all manifest tests plus runtime/launcher checks"},
+  "infrastructure_changes": ["RuntimeConfig permits port 0 for OS-assigned isolated test/launcher ports.", "API QA test uses port 0 instead of fixed 8080."],
+  "exclusions": ["production identity/OIDC", "tenant isolation", "supported deployment/hosting", "production auth guarantees", "real-data pilot"]
+}

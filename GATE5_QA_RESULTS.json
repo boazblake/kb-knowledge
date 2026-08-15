@@ -1,0 +1,56 @@
+{
+  "schema": "kb-pipeline.gate5-evidence.v1",
+  "gate": 5,
+  "validation_owner": "QA",
+  "provenance": {
+    "source": "executed",
+    "manifest": "tests/test_manifest.json",
+    "manifest_sha256": "5501329c58256bdcb69b68471ad4439803956300cc0bcdd0792d01ebccd5038a",
+    "captured_at": "2026-08-13T00:00:00Z"
+  },
+  "test_count": 72,
+  "environment": {
+    "python": "3.9.6",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "unittest_runs": 2,
+    "compileall": "pass",
+    "node_check": "pass",
+    "commands": [
+      "python3 -m unittest discover -v",
+      "python3 -m unittest discover -v",
+      "python3 -m compileall -q kb_pipeline tests",
+      "node --check frontend/app.js",
+      "evidence generation: backup/checksum Python command"
+    ]
+  },
+  "scenario_results": [
+    {"id": "G5-001-transactional-ledger-outbox-raw-audit", "status": "pass"},
+    {"id": "G5-002-crash-before-after-commit", "status": "pass"},
+    {"id": "G5-003-outbox-lease-retry-dead-letter", "status": "pass"},
+    {"id": "G5-004-concurrent-duplicate-same-object-revisions", "status": "pass"},
+    {"id": "G5-005-persistent-gaps-no-skip-clear-recovery", "status": "pass"},
+    {"id": "G5-006-checkpoint-bounded-replay-repair", "status": "pass"},
+    {"id": "G5-007-projection-failure-convergence", "status": "pass"},
+    {"id": "G5-008-shared-artifact-refcount-purge", "status": "pass"},
+    {"id": "G5-009-staged-backup-restore-interruption-manifest-checksums", "status": "pass"},
+    {"id": "G5-010-readiness-metrics-limits-log-redaction-dynamic-ports", "status": "pass"}
+  ],
+  "backup_bundle_checksums": [
+    {"path": "database.sqlite", "sha256": "a8574ff04146299c68ccea828dcd50cece7f53f3baf37bcbacb5c898a3ee98c7"},
+    {"path": "database.sqlite-shm", "sha256": "8589df4ce2cb403603c095f9f12147817fdfeb7e140b0cd94500e55187794388"},
+    {"path": "database.sqlite-wal", "sha256": "c4a3d05c1c27e838a64f21f00326bfbfb5521fdffc6fcf527bfa38392cde5e34"},
+    {"path": "manifest.json", "sha256": "04d6fa4d08d7eaa801e975ced8193d20c414121d199b1595c008138ca054274e"},
+    {"path": "raw/139cf59b5d94fd1e5b2123e82fa4d157b7132184192a1fd1631ecac93e7d5a9f", "sha256": "139cf59b5d94fd1e5b2123e82fa4d157b7132184192a1fd1631ecac93e7d5a9f"}
+  ],
+  "sqlite_integrity": "pass",
+  "restore_validation": "pass",
+  "interruption_outcomes": [
+    {"id": "restore-copy", "status": "pass"},
+    {"id": "restore-promotion", "status": "pass"},
+    {"id": "backup-publish", "status": "pass"}
+  ],
+  "category_results": {"purge": "pass", "replay": "pass", "readiness": "pass", "limits": "pass", "log_redaction": "pass"},
+  "failure_outcomes": {"observed": "Injected failures rolled back or retried as asserted.", "failures": []},
+  "exclusions": ["external KMS/OIDC", "production claims", "non-local connectors", "real-data pilot", "load/performance budget", "OS process-kill crash rehearsal"],
+  "pilot_blockers": ["Production auth/KMS and tenant-boundary evidence absent", "No production concurrency/load or measured RPO/RTO evidence", "Non-local connector and real-data pilot evidence absent"]
+}

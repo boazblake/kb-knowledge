@@ -16,6 +16,96 @@
 
 Protocol-demo path is local and synthetic only. Loopback reader/admin identities are short-lived; never treat them as production auth. External OIDC/KMS remain injected ports; no provider integration exists. Production rejects test crypto.
 
+## Synthetic Nango adapter experiment
+
+Use deterministic fixtures only. Treat adapter as **EXPERIMENT only**, not production adoption. Feed emitted pairs to local ledger; acknowledge cursor only after durable ledger acceptance. Nango cache is not an archive. Do not infer deletes from incomplete snapshots. Gate 2/3 QA records **66/66 serial tests passing twice**, **15/15 targeted tests passing**, Python **3.11.12**, and compile/Node/launcher smoke passing. Production auth/KMS, atomic ledger/outbox, crash-safe checkpoint resume, concurrency convergence, observability, deployment, and real-data rehearsal remain excluded.
+
+## Gate 5 reliability core
+
+- SQLite opens with `WAL`, `synchronous=FULL`, foreign keys, 30-second busy timeout,
+  and one process-local writer lock. Production composition requires injected OIDC and KMS ports.
+- Ledger acceptance, outbox creation, raw metadata, and audit callbacks use one SQLite transaction.
+- Outbox uses durable pending/claimed/applied/failed states, leases, bounded attempts, and dead letters.
+- Replay validates contiguous ledger sequences and checkpoints cannot move backward or beyond ledger head.
+- Gaps persist until missing revisions arrive; no-skip behavior blocks acceptance of later revisions.
+- Content hashes use durable reference counts; purge state is source/document scoped and resumable by status.
+- Backup/restore uses staged bundles, manifests, checksums, artifact validation, and writer quiesce.
+- `/v1/ready`, `/v1/status`, and service health expose ledger, outbox, checkpoint, projection, and metrics state.
+
+Evidence command:
+`python3 -m unittest discover && python3 -m compileall -q kb_pipeline && node --check frontend/app.js`
+
+## Gate 6 remediation: concurrency/readiness complete
+
+Gate 6 fix validation covers synthetic local scope. Access is serialized per database;
+make no multi-writer claim. Stress testing passes, and readiness gates on document
+projection lag. **78 tests passed twice**; compile, Node, and git checks passed.
+
+Earlier synthetic-local measurements in [`GATE6_SRE_RESULTS.json`](../GATE6_SRE_RESULTS.json)
+cover ingest, search, replay, backup/restore, and **20/20 API readers** returning
+HTTP 200. API-reader success is bounded probe evidence; it is not SQLite
+concurrency evidence. Machine-specific test timing is not retained as documentation
+evidence.
+
+Qualification remains pending:
+
+- Rerun evidence under supported Python **>=3.11**.
+- Approved baseline acceptance criteria are ingest **≥100 records/s**, search **p95
+  ≤100 ms**, RPO **≤24h**, and RTO **≤4h**.
+- Targets remain pending a supported-runtime qualifying run; they are not proof.
+
+Next: rerun Gate 6 under supported Python against approved targets and repeat
+qualification evidence. Keep data synthetic; real-data pilot remains **NO-GO**.
+
+### Gate 6 synthetic-local recovery rehearsal
+
+Run bounded recovery rehearsal with:
+
+```sh
+python -m kb_pipeline.gate6_recovery
+```
+
+Validated checks are SQLite integrity, raw-artifact links, retrieval/search of
+pre-backup records, and absence of post-backup records after restore. Recovery
+acceptance criteria are RPO **≤24h** and RTO **≤4h**. Command output is
+synthetic-local evidence only; it is not production disaster recovery, production
+qualification, or pilot approval. Do not record machine-specific test timing as
+documentation evidence.
+
+Connector implementation may proceed only as local/reference scope. Production
+connector adoption remains blocked on external identity/KMS, production-grade
+recovery and operations, and real-data approval.
+
+## Local/reference answer mode
+
+Default answer behavior is deterministic abstention. Enable generated answers only
+through explicit local Ollama opt-in, and require citations for every generated
+answer. Keep all inputs synthetic/local; this mode grants no real-data or production
+approval.
+
+Setup flow remains generic until project integration is defined:
+
+1. Install Ollama with its supported platform installer.
+2. Start its local service with the supported Ollama start mechanism.
+3. Pull an approved local model through Ollama's supported model-pull flow.
+4. Start project service with the verified existing command:
+   `python -m kb_pipeline.cli serve DB --source-root ROOT --port 8080`.
+
+Verified explicit opt-in serve usage is:
+`python -m kb_pipeline.cli serve DB --source-root ROOT --port 8080 --ollama-model MODEL`.
+Optional flags are `--ollama-endpoint LOOPBACK_ENDPOINT` and
+`--ollama-timeout SECONDS`. These flags activate only local/reference Ollama;
+provider configuration and injection/data-boundary follow-up remain required.
+
+LLM parent dependencies: citation contract (partial), provider configuration,
+injection/data boundary, and groundedness evaluation.
+
+```text
+Gate 6 remediation               [██████████] Complete ✅
+Supported-Python rerun + targets [░░░░░░░░░░] Next stage
+Production readiness              [░░░░░░░░░░] NO-GO
+```
+
 ## Gate 4 hardening
 
 - Backup: `python -m kb_pipeline.cli backup DB BUNDLE`; staging, manifest, SHA-256 checksums, artifact-link validation. Restore validates before replacement.
@@ -49,7 +139,7 @@ results, and explicit exclusions. Unknown fields and placeholder values fail clo
 2. **Namespace/auth isolation.** Enforce exact `ObjectKey` boundaries, authenticated reader/admin identities, source ACLs, and encrypted payload/erasable-DEK lifecycle. Gate: identity/ACL and encryption sign-off.
 3. **Purge and recovery.** Define DEK erasure and source-scoped deletion across raw, projections, backups, caches, and audit retention; prove atomic backup/restore and rehearse RPO/RTO.
 4. **Replay/checkpoint recovery.** Add concurrency policy, replay, migrations, dead-letter handling, and gap-quarantine recovery.
-5. **Observability, limits and operations.** Enforce limits; add metrics, logs, alerts, readiness, capacity and on-call. Gate: load, failure, alert, and operational rehearsal.
+5. **Observability, limits and operations.** Enforce limits; add metrics, logs, alerts, readiness, capacity and on-call. Reference readiness defaults to `max_projection_lag=0`, so document/search lag fails readiness. Gate: load, failure, alert, and operational rehearsal.
 6. **API/UI integration and source expansion.** Provide supported composition, token, hosting, and route contract. Add only accepted connectors/MIME/attachment policy.
 2. **Atomic write model.** Add single-writer/concurrency policy, transactional
    projection updates, durable outbox, replay, idempotency, migrations, dead-letter

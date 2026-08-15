@@ -15,6 +15,12 @@
     "test_phase4_qa.Phase4BackendQA.test_configured_grace_controls_acl_refresh_recovery",
     "test_phase4_qa.Phase4BackendQA.test_encrypted_payload_seam_has_no_plaintext_fallback",
     "test_phase4_qa.Phase4BackendQA.test_freshness_boundaries_are_exact",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_atomic_accept_rolls_back_before_and_after_commit_failures",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_checkpoint_replay_is_bounded_and_repair_rebuilds_all",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_concurrent_duplicate_acceptance_has_one_ledger_row",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_gap_persists_and_recovery_does_not_skip_revision",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_projection_failure_retries_to_convergence",
+    "test_phase4_qa.Phase4BackendQA.test_gate5_shared_artifact_refcount_survives_partial_purge",
     "test_phase4_qa.Phase4BackendQA.test_gap_is_quarantined_then_missing_revision_recovers",
     "test_phase4_qa.Phase4BackendQA.test_gate4_evidence_rejects_placeholders_and_unknown_fields",
     "test_phase4_qa.Phase4BackendQA.test_gate4_evidence_rejects_stale_manifest_count",
@@ -61,6 +67,12 @@
     "test_protocol.ProtocolTests.test_permission_and_source_isolation",
     "test_protocol.ProtocolTests.test_replay_preserves_full_source_identity_exactly",
     "test_protocol.ProtocolTests.test_revision_must_be_positive",
-    "test_protocol.ProtocolTests.test_same_object_id_across_source_instances_stays_distinct"
+    "test_protocol.ProtocolTests.test_same_object_id_across_source_instances_stays_distinct",
+    "test_security_adapters.SecurityContractTests.test_envelope_context_tamper_and_key_failure",
+    "test_security_adapters.SecurityContractTests.test_jwt_claim_and_signature_fail_closed",
+    "test_security_adapters.SecurityContractTests.test_principal_role_isolation",
+    "test_security_adapters.SecurityContractTests.test_production_rejects_test_security",
+    "test_nango_adapter.NangoAdapterTests.test_delete_and_full_identity_provenance",
+    "test_nango_adapter.NangoAdapterTests.test_duplicate_webhook_is_idempotent"
   ]
 }

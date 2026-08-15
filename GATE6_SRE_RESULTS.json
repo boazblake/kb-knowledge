@@ -1,0 +1,283 @@
+{
+  "captured_at": "2026-08-14T02:45:07.667264+00:00",
+  "checks": [
+    {
+      "id": "baseline-ingest-search-replay",
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "exitcode": -11,
+        "status": "process_exit"
+      },
+      "id": "concurrent-readers",
+      "status": "fail"
+    },
+    {
+      "detail": {
+        "errors": [],
+        "http_200": 20,
+        "latency_ms": "not captured by bounded probe",
+        "requests": 20,
+        "status": "completed",
+        "workers": 8
+      },
+      "id": "concurrent-api-readers",
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "exitcode": -11,
+        "status": "process_exit"
+      },
+      "id": "serialized-writer",
+      "status": "fail"
+    },
+    {
+      "detail": "ok",
+      "id": "backup-restore-integrity",
+      "status": "pass"
+    },
+    {
+      "id": "failure-injection-preserves-target",
+      "status": "pass"
+    },
+    {
+      "id": "readiness-metrics",
+      "status": "pass"
+    },
+    {
+      "id": "python311-runtime",
+      "status": "fail"
+    },
+    {
+      "id": "pilot-slo-comparison",
+      "status": "fail"
+    }
+  ],
+  "checksums": {
+    "backup_bundle": [
+      {
+        "path": "database.sqlite",
+        "sha256": "326d0918ead657aba29c303b5d21fb9b894eb1004ff0e4bcf3577c54c1d6ffd5"
+      },
+      {
+        "path": "database.sqlite-shm",
+        "sha256": "d5a909aaadb475cf454afcc8ddf1211c81ec198b4f3371a6a3140b6cc0576fc1"
+      },
+      {
+        "path": "database.sqlite-wal",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "raw/313a25a8c2ee7a0d9742b75b8e7f4486a29ba33cd324e533620691532bb73794",
+        "sha256": "313a25a8c2ee7a0d9742b75b8e7f4486a29ba33cd324e533620691532bb73794"
+      }
+    ]
+  },
+  "commands": [
+    "python3.11 -m pytest -q [unavailable]",
+    "python3 -m pytest -q [pytest unavailable]",
+    "python3 -m unittest discover -v [pass: 76]",
+    "python3 -m compileall -q kb_pipeline tests [pass]",
+    "node --check frontend/app.js [pass]",
+    "inline Python benchmark/evidence harness [executed]"
+  ],
+  "documented_pilot_slos": {
+    "availability": null,
+    "comparison": "No numeric targets documented.",
+    "error_budget": null,
+    "latency": null,
+    "numeric_targets_found": false,
+    "rpo": null,
+    "rto": null,
+    "throughput": null
+  },
+  "environment": {
+    "machine": "arm64",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "synthetic_local_only": true
+  },
+  "exclusions": [
+    "No product code changed.",
+    "Synthetic local data only; no real credentials/customer/confidential/regulated data.",
+    "Python 3.11 unavailable; measurements ran on Python 3.9.6.",
+    "pytest unavailable; unittest/compileall/Node used.",
+    "Fake OIDC/KMS only; no network JWKS or real KMS.",
+    "No process-kill/power-loss/host-loss/filesystem-corruption or clean-host DR rehearsal.",
+    "No external connectors, replicas, object storage, retention, alerts, tracing, deployment, on-call, or tenant-boundary evidence.",
+    "No production traffic mix, growth history, or capacity threshold.",
+    "No numeric pilot SLO/RPO/RTO targets."
+  ],
+  "fake_oidc_kms_checks": {
+    "scope": "fake adapters only; no production claim",
+    "source": "tests/test_security_adapters.py",
+    "status": "pass in unittest suite"
+  },
+  "gate": 6,
+  "limits": {
+    "configured": {
+      "max_files": 10000,
+      "max_payload_bytes": 10485760,
+      "max_query_chars": 512,
+      "max_replay_batch": 100,
+      "max_request_bytes": 1048576,
+      "max_results": 100,
+      "max_scan_bytes": 104857600
+    },
+    "observed": {
+      "busy_timeout_ms": 30000,
+      "documents": 100,
+      "foreign_keys": 1,
+      "raw_records": 100,
+      "synchronous": 2,
+      "tombstones": 0,
+      "wal": true
+    }
+  },
+  "measurements": {
+    "backup_restore": {
+      "backup_elapsed_s": 0.005611,
+      "bundle_bytes": 373303,
+      "restore_elapsed_s": 0.012112,
+      "restore_error": null
+    },
+    "baseline_ingest": {
+      "accepted": 100,
+      "elapsed_s": 0.143917,
+      "latency": {
+        "count": 100,
+        "max_ms": 8.638,
+        "p50_ms": 1.311,
+        "p95_ms": 2.262
+      },
+      "records": 100,
+      "records_per_s": 694.846
+    },
+    "baseline_search": {
+      "latency": {
+        "count": 100,
+        "max_ms": 2.457,
+        "p50_ms": 1.129,
+        "p95_ms": 1.179
+      },
+      "requests": 100,
+      "requests_per_s": 876.513
+    },
+    "concurrent_api_readers": {
+      "errors": [],
+      "http_200": 20,
+      "latency_ms": "not captured by bounded probe",
+      "requests": 20,
+      "status": "completed",
+      "workers": 8
+    },
+    "concurrent_readers": {
+      "exitcode": -11,
+      "status": "process_exit"
+    },
+    "failure_injection": [
+      {
+        "hook": "db_copy",
+        "preserved": true,
+        "raised": true
+      },
+      {
+        "hook": "artifact_copy",
+        "preserved": true,
+        "raised": true
+      },
+      {
+        "hook": "manifest_checksum",
+        "preserved": true,
+        "raised": true
+      },
+      {
+        "hook": "publish",
+        "preserved": true,
+        "raised": true
+      }
+    ],
+    "readiness_metrics": {
+      "health": {
+        "checkpoints": {
+          "default:document": 0,
+          "default:lexical": 100,
+          "default:state": 100
+        },
+        "dead_letters": 0,
+        "gaps": 0,
+        "ledger_sequence": 100,
+        "metrics": {
+          "checkpoint_streams": 3,
+          "ledger_appends": 100,
+          "outbox_total": 100
+        },
+        "outbox_failed": 0,
+        "outbox_pending": 0,
+        "projection_lag": {
+          "default:document": 100,
+          "default:lexical": 0,
+          "default:state": 0
+        }
+      },
+      "readiness": {
+        "checks": {
+          "replay": true,
+          "storage": true
+        },
+        "health": {
+          "checkpoints": {
+            "default:document": 0,
+            "default:lexical": 100,
+            "default:state": 100
+          },
+          "dead_letters": 0,
+          "gaps": 0,
+          "ledger_sequence": 100,
+          "metrics": {
+            "checkpoint_streams": 3,
+            "ledger_appends": 100,
+            "outbox_total": 100
+          },
+          "outbox_failed": 0,
+          "outbox_pending": 0,
+          "projection_lag": {
+            "default:document": 100,
+            "default:lexical": 0,
+            "default:state": 0
+          }
+        },
+        "status": "ready"
+      }
+    },
+    "replay": {
+      "elapsed_s": 0.038351,
+      "records": 100,
+      "records_per_s": 2607.477
+    },
+    "serialized_writer": {
+      "exitcode": -11,
+      "status": "process_exit"
+    },
+    "storage_estimate": {
+      "basis": "linear synthetic extrapolation only",
+      "bytes_per_document": 3399.98,
+      "database_plus_raw_bytes": 339998,
+      "illustrative_100k_bytes": 339998000.0
+    }
+  },
+  "no_go_reasons": [
+    "NO-GO: no numeric pilot SLO, error-budget, RPO, or RTO targets documented; comparison impossible.",
+    "NO-GO: Python 3.11 unavailable; observed Python 3.9.6.",
+    "NO-GO: concurrent reader probe timed out against shared SQLite connection; production concurrency claim fails.",
+    "NO-GO: same-host synthetic timings are not production-shaped capacity evidence.",
+    "NO-GO: fake OIDC/KMS only; production identity/KMS/tenant isolation/encrypted read path absent.",
+    "NO-GO: production observability, alerting, deployment, dependencies, capacity, and on-call evidence absent.",
+    "NO-GO: direct shared SQLite reader/writer probes exited with signal 11 under forked concurrency; API-only probe passed but does not clear service concurrency.",
+    "NO-GO: readiness returned ready while document projection lag remained 100; readiness/SLO lag policy is not production-qualified."
+  ],
+  "schema": "kb-pipeline.gate6-sre-evidence.v1",
+  "status": "NO-GO"
+}

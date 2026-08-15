@@ -6,6 +6,24 @@ const count = document.querySelector('#result-count');
 const resultsSection = document.querySelector('.results-section');
 const statusButton = document.querySelector('#status-button');
 const serviceStatus = document.querySelector('#service-status');
+const answerForm = document.querySelector('#answer-form');
+const answerQuery = document.querySelector('#answer-query');
+const answerButton = document.querySelector('#answer-button');
+const answerStatus = document.querySelector('#answer-status');
+const answerResult = document.querySelector('#answer-result');
+const answerResultHeading = document.querySelector('#answer-result-heading');
+const answerEvidenceNote = document.querySelector('#answer-evidence-note');
+const answerText = document.querySelector('#answer-text');
+const answerCitations = document.querySelector('#answer-citations');
+const answerCopy = document.querySelector('#answer-copy');
+let answerTranscript = '';
+const reportPanel = document.querySelector('.report-panel');
+const reportButton = document.querySelector('#report-button');
+const reportStatus = document.querySelector('#report-status');
+const reportContent = document.querySelector('#report-content');
+const reportKpis = document.querySelector('#report-kpis');
+const reportBars = document.querySelector('#report-bars');
+const reportDetails = document.querySelector('#report-details');
 const apiBase = '/v1';
 
 function headers() {
@@ -35,7 +53,7 @@ function renderResults(items) {
     snippet.textContent = safeText(hit.snippet, 'No preview available.');
     const metadata = document.createElement('dl');
     metadata.className = 'metadata';
-    addMetadata(metadata, 'Scope', 'Synthetic local');
+    addMetadata(metadata, 'Scope', 'Local reference · currently indexed local documents · API controls access');
     addMetadata(metadata, 'Source identity', sourceIdentity(hit));
     addMetadata(metadata, 'Source', `Local file · Safe locator · ${safeDisplayValue(hit.source_locator)}`);
     addMetadata(metadata, 'Content version', safeText(hit.source_version));
@@ -166,6 +184,234 @@ form.addEventListener('submit', (event) => {
   const query = queryInput.value.trim();
   if (query) search(query);
 });
+
+function setAnswerState(message, kind = '') {
+  answerStatus.textContent = message;
+  answerStatus.className = `answer-status${kind ? ` ${kind}` : ''}`;
+}
+
+function answerCitationsFrom(payload) {
+  const citations = payload?.citations || payload?.evidence || payload?.sources;
+  return Array.isArray(citations) ? citations.filter((citation) => citation && typeof citation === 'object') : [];
+}
+
+function answerProvenance(citation) {
+  const value = citation.provenance;
+  if (Array.isArray(value)) return value.map((entry) => typeof entry === 'string' ? safeDisplayValue(entry) : safeDisplayValue(entry?.label || entry?.identifier)).filter((entry) => entry !== 'Unavailable').join(' → ');
+  return safeDisplayValue(value);
+}
+
+function safeCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function summaryItems(value, limit = 6) {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  return values.map((item) => {
+    if (typeof item === 'string') return item.trim();
+    if (item && typeof item === 'object') {
+      const candidate = item.label || item.name || item.value;
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    }
+    return '';
+  }).filter(Boolean).slice(0, limit);
+}
+
+function appendSummaryList(container, label, values) {
+  const section = document.createElement('section');
+  const heading = document.createElement('h5');
+  const list = document.createElement('ul');
+  heading.textContent = label;
+  const entries = summaryItems(values);
+  if (entries.length) entries.forEach((entry) => {
+    const item = document.createElement('li');
+    item.textContent = entry;
+    list.append(item);
+  });
+  else {
+    const item = document.createElement('li');
+    item.textContent = 'None supplied.';
+    list.append(item);
+  }
+  section.append(heading, list);
+  container.append(section);
+}
+
+function appendSummaryBreakdown(container, label, values) {
+  const section = document.createElement('section');
+  const heading = document.createElement('h5');
+  const list = document.createElement('ul');
+  heading.textContent = label;
+  const entries = values && typeof values === 'object' && !Array.isArray(values)
+    ? Object.entries(values).filter(([, value]) => typeof value === 'string' || safeCount(value) !== null).slice(0, 6)
+    : [];
+  if (entries.length) entries.forEach(([key, value]) => {
+    const item = document.createElement('li');
+    item.textContent = `${key}: ${value}`;
+    list.append(item);
+  });
+  else {
+    const item = document.createElement('li');
+    item.textContent = 'Unavailable.';
+    list.append(item);
+  }
+  section.append(heading, list);
+  container.append(section);
+}
+
+function summaryField(summary, names) {
+  const nested = summary?.label_candidates;
+  const nestedKey = names.includes('subject_species_candidates') ? 'subject_species'
+    : names.includes('modalities') ? 'modality'
+      : names.includes('body_regions') ? 'body_region'
+        : names.includes('projections_or_views') ? 'projection_view' : '';
+  if (nested && typeof nested === 'object' && nestedKey && nested[nestedKey] !== undefined) return nested[nestedKey];
+  return names.map((name) => summary?.[name]).find((value) => value !== undefined);
+}
+
+function appendCandidateSummary(container, summary) {
+  const section = document.createElement('section');
+  const heading = document.createElement('h5');
+  const lists = document.createElement('div');
+  section.className = 'candidate-summary';
+  heading.textContent = 'Model-observed candidates';
+  lists.className = 'candidate-lists';
+  appendSummaryList(lists, 'Subject species', summaryField(summary, ['subject_species_candidates', 'species_candidates', 'subject_species']));
+  appendSummaryList(lists, 'Modalities', summaryField(summary, ['modalities', 'modality_candidates', 'modality']));
+  appendSummaryList(lists, 'Body regions', summaryField(summary, ['body_regions', 'body_region_candidates', 'regions']));
+  appendSummaryList(lists, 'Projections or views', summaryField(summary, ['projections_or_views', 'projection_or_view_candidates', 'views', 'projections']));
+  section.append(heading, lists);
+  container.append(section);
+}
+
+function renderVisualSummary(summary) {
+  answerText.replaceChildren();
+  const summaryPanel = document.createElement('section');
+  const counts = document.createElement('dl');
+  summaryPanel.className = 'visual-summary';
+  counts.className = 'visual-counts';
+  [['Documents', summary?.document_count], ['Extracted items', summary?.extracted_count]].forEach(([label, value]) => {
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = safeCount(value) === null ? 'Unavailable' : new Intl.NumberFormat().format(value);
+    counts.append(term, description);
+  });
+  summaryPanel.append(counts);
+  appendSummaryBreakdown(summaryPanel, 'Extraction status', summary?.extraction_status_counts);
+  appendSummaryBreakdown(summaryPanel, 'Orientation', summary?.orientation_counts);
+  appendSummaryBreakdown(summaryPanel, 'Image quality', summary?.image_quality_counts);
+  appendCandidateSummary(summaryPanel, summary);
+  appendSummaryList(summaryPanel, 'Visible text', summary?.visible_text);
+  appendSummaryList(summaryPanel, 'Markers and devices', summary?.markers_devices);
+  appendSummaryList(summaryPanel, 'Uncertainties', summary?.uncertainties);
+  answerText.append(summaryPanel);
+}
+
+function renderAnswer(answer, citations, visualEvidence = false, visualSummary = null, visualObservations = false) {
+  answerResult.classList.toggle('visual-evidence', visualEvidence);
+  answerResultHeading.textContent = visualEvidence ? 'Automated visual evidence summary' : 'Grounded answer';
+  answerEvidenceNote.hidden = !(visualEvidence || visualObservations);
+  answerEvidenceNote.textContent = visualEvidence
+    ? 'Reports stored observations and metadata. It is not clinical interpretation.'
+    : visualObservations ? 'Cited evidence includes automated visual observations. It is not clinical interpretation.' : '';
+  if (visualEvidence && visualSummary && typeof visualSummary === 'object' && !Array.isArray(visualSummary)) renderVisualSummary(visualSummary);
+  else answerText.textContent = answer;
+  answerCitations.replaceChildren();
+  citations.forEach((citation, index) => {
+    const item = document.createElement('li');
+    const title = document.createElement('strong');
+    const identity = document.createElement('span');
+    const snippet = document.createElement('p');
+    const provenance = document.createElement('p');
+    title.textContent = safeText(citation.title, 'Untitled local record');
+    identity.className = 'citation-id';
+    identity.textContent = `Citation ${index + 1} · ${safeText(citation.document_id, 'Document ID unavailable')}`;
+    snippet.textContent = safeText(citation.snippet, 'No local excerpt supplied.');
+    const source = answerProvenance(citation);
+    provenance.className = 'citation-provenance';
+    provenance.textContent = source === 'Unavailable' ? 'Provenance unavailable.' : `Provenance: ${source}`;
+    item.append(title, identity, snippet, provenance);
+    answerCitations.append(item);
+  });
+  const summaryText = visualEvidence && visualSummary && typeof visualSummary === 'object' && !Array.isArray(visualSummary)
+    ? answerText.innerText : answer;
+  const lines = [visualEvidence ? 'Automated visual evidence summary' : 'Grounded answer'];
+  if (visualEvidence) lines.push('Reports stored observations and metadata. It is not clinical interpretation.');
+  else if (visualObservations) lines.push('Cited evidence includes automated visual observations. It is not clinical interpretation.');
+  lines.push(summaryText, '', 'Local citations:');
+  citations.forEach((citation, index) => lines.push(`${index + 1}. ${safeText(citation.title, 'Untitled local record')}`, `Document ID: ${safeDisplayValue(citation.document_id)}`, `Provenance: ${answerProvenance(citation)}`, `Excerpt: ${safeText(citation.snippet, 'No local excerpt supplied.')}`));
+  answerTranscript = lines.join('\n');
+  answerCopy.hidden = false;
+  answerResult.hidden = false;
+}
+
+async function askAnswer(query) {
+  answerButton.disabled = true;
+  answerResult.hidden = true;
+  answerCopy.hidden = true;
+  answerTranscript = '';
+  answerCitations.replaceChildren();
+  setAnswerState('Checking local evidence…');
+  try {
+    const response = await fetch(`${apiBase}/answer`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+    if (response.status === 401 || response.status === 403) { setAnswerState('Answer mode is unavailable for this account.', 'unavailable'); return; }
+    if (response.status === 429) { setAnswerState('Answer requests are rate limited. Try again shortly.', 'unavailable'); return; }
+    if (response.status === 404) { setAnswerState('Answer mode is not available from this local service yet. Search remains available.', 'unavailable'); return; }
+    if (response.status === 503) { setAnswerState('No local answer model is available. Search remains available.', 'unavailable'); return; }
+    if (!response.ok) throw new Error(`Answer failed (${response.status})`);
+    const payload = await response.json();
+    const citations = answerCitationsFrom(payload);
+    const visualEvidence = payload?.visual_evidence === true;
+    const grounded = payload?.grounded === true;
+    const visualSummaryMode = visualEvidence && !grounded;
+    const visualSummary = visualSummaryMode && payload?.summary && typeof payload.summary === 'object' && !Array.isArray(payload.summary) ? payload.summary : null;
+    const answerValue = grounded ? payload?.answer : visualSummaryMode ? (payload?.visual_summary || (typeof payload?.summary === 'string' ? payload.summary : payload?.answer)) : payload?.answer;
+    const answer = typeof answerValue === 'string' ? answerValue.trim() : '';
+    if (payload?.abstained === true || payload?.status === 'insufficient_evidence' || payload?.reason === 'insufficient_evidence' || (!answer && !visualSummary) || !citations.length) {
+      setAnswerState('Insufficient local evidence to provide a grounded answer. Try search or revise question.', 'abstained');
+      return;
+    }
+    renderAnswer(answer, citations, visualSummaryMode, visualSummary, visualEvidence && grounded);
+    setAnswerState(visualSummaryMode
+      ? `${citations.length} ${citations.length === 1 ? 'local citation supports' : 'local citations support'} this stored-evidence summary.`
+      : `${citations.length} ${citations.length === 1 ? 'local citation' : 'local citations'} support this answer.`);
+  } catch (_) {
+    setAnswerState('Answer mode is offline or unavailable. Search remains available.', 'unavailable');
+  } finally {
+    answerButton.disabled = false;
+  }
+}
+
+answerForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const query = answerQuery.value.trim();
+  if (query) askAnswer(query);
+});
+
+async function copyAnswerTranscript() {
+  if (!answerTranscript) return;
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(answerTranscript);
+    else {
+      const field = document.createElement('textarea');
+      field.value = answerTranscript;
+      field.setAttribute('readonly', '');
+      field.style.position = 'fixed';
+      field.style.opacity = '0';
+      document.body.append(field);
+      field.select();
+      const copied = document.execCommand('copy');
+      field.remove();
+      if (!copied) throw new Error('Copy unavailable');
+    }
+    setAnswerState('Answer transcript copied to clipboard.');
+  } catch (_) {
+    setAnswerState('Could not copy automatically. Clipboard access is unavailable.', 'unavailable');
+  }
+}
+
+answerCopy.addEventListener('click', copyAnswerTranscript);
 
 async function checkStatus() {
   statusButton.disabled = true;
@@ -405,10 +651,3 @@ document.querySelectorAll('.capability-node, .map-node').forEach((node) => {
     if (copy) capability.querySelector('.capability-node')?.setAttribute('aria-expanded', String(pinned));
   });
 });
-const reportPanel = document.querySelector('.report-panel');
-const reportButton = document.querySelector('#report-button');
-const reportStatus = document.querySelector('#report-status');
-const reportContent = document.querySelector('#report-content');
-const reportKpis = document.querySelector('#report-kpis');
-const reportBars = document.querySelector('#report-bars');
-const reportDetails = document.querySelector('#report-details');

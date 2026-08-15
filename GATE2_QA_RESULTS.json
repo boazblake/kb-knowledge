@@ -1,0 +1,32 @@
+{
+  "schema": "kb-pipeline.gate2-evidence.v1",
+  "gate": 2,
+  "validation_owner": "QA",
+  "provenance": {
+    "source": "executed",
+    "manifest": "tests/test_manifest.json",
+    "manifest_sha256": "099725b2ba439464cefc0787b514241a10307dda1c58f21f3181e3b95df47ca7",
+    "captured_at": "2026-08-13"
+  },
+  "environment": {
+    "python": "3.11.12",
+    "python_source": "nixpkgs#python311",
+    "node": "v24.18.1",
+    "platform": "darwin",
+    "suite_version": "0.1.0"
+  },
+  "commands": [
+    {"command": "nix shell nixpkgs#python311 --command python -m unittest discover", "runs": 2, "result": "pass", "tests_per_run": 66},
+    {"command": "nix shell nixpkgs#python311 --command python -m compileall -q kb_pipeline tests", "result": "pass"},
+    {"command": "nix shell nixpkgs#python311 --command python -m unittest tests.test_protocol", "result": "pass", "tests": 10}
+  ],
+  "scenario_results": [
+    {"id": "G2-ledger-authority-reference", "status": "pass", "tests": ["test_phase4_qa.Phase4BackendQA.test_ledger_outbox_and_replay_repair_are_observable", "test_protocol.ProtocolTests.test_conflicting_revision_is_quarantined_but_duplicate_delivery_is_allowed"]},
+    {"id": "G2-outbox-lease-retry-dead-letter", "status": "pass", "tests": ["test_protocol.ProtocolTests.test_outbox_lease_retry_and_dead_letter"]},
+    {"id": "G2-replay", "status": "pass", "tests": ["test_protocol.ProtocolTests.test_crash_replay_rebuilds_projections_from_ledger", "test_protocol.ProtocolTests.test_duplicate_stale_delete_and_replay"]},
+    {"id": "G2-checkpoint", "status": "excluded", "reason": "No checkpoint-specific test in checked-in manifest; no claim made."},
+    {"id": "G2-convergence", "status": "excluded", "reason": "No crash/concurrency convergence evidence; no claim made."}
+  ],
+  "coverage": {"manifest_tests": 66, "full_unittest_passes": 2, "target": "all manifest tests"},
+  "exclusions": ["production-authoritative atomic ledger", "cross-effect outbox atomicity", "crash-safe checkpoint resume", "concurrency convergence", "real-data pilot"]
+}
