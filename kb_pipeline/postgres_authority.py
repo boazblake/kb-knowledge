@@ -116,7 +116,8 @@ class PostgresAuthorityRepository:
         } if hasattr(value, "document_id") else dict(value))
         with self.transaction() as conn:
             fingerprint = json.dumps({"object_key": object_key, "revision": change.revision,
-                                      "operation": change.operation.value, "payload": payload}, sort_keys=True, default=str)
+                                      "operation": change.operation.value, "payload": payload,
+                                      "content_hash": content_hash}, sort_keys=True, default=str)
             duplicate = conn.execute("SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
             if duplicate:
                 return RevisionOutcome.DUPLICATE if duplicate[0] == fingerprint else RevisionOutcome.CONFLICT
@@ -187,15 +188,23 @@ class PostgresIngestionService:
         self.repository, self.connector, self.canonicalizer = repository, connector, canonicalizer
         self.raw_storage, self.identity_provider, self.key_provider, self.telemetry = raw_storage, identity_provider, key_provider, telemetry
 
+    def _authorize(self, metadata, tenant: str, source_instance: str):
+        if self.identity_provider is None:
+            return None
+        token = metadata.get("oidc_token") if hasattr(metadata, "get") else None
+        if not token:
+            raise PermissionError("authenticated OIDC token required for production ingestion")
+        try:
+            principal = self.identity_provider.validate(token)
+        except Exception as exc:
+            raise PermissionError("invalid production identity") from exc
+        if not principal.can_read(tenant, source_instance):
+            raise PermissionError("connector principal outside tenant/source scope")
+        return principal
+
     def ingest_change(self, raw, change, job_id: str) -> bool:
         """Persist connector envelope without collapsing revision or operation."""
-        if self.identity_provider is not None:
-            token = raw.metadata.get("oidc_token") if hasattr(raw.metadata, "get") else None
-            if not token:
-                raise RuntimeError("authenticated OIDC token required for production ingestion")
-            principal = self.identity_provider.validate(token)
-            if not principal.can_read(change.source.tenant, change.source.source_instance):
-                raise PermissionError("connector principal outside tenant/source scope")
+        self._authorize(raw.metadata, change.source.tenant, change.source.source_instance)
         raw_uri = raw.source.source_uri
         if self.raw_storage is not None:
             raw_uri = self.raw_storage.put(
@@ -213,6 +222,7 @@ class PostgresIngestionService:
         from .domain import ACL, RawRecord
         from .protocol import CanonicalChange, Operation, PermissionState, ProvenanceLink
 
+        self._authorize(item.metadata, item.tenant, item.source_instance)
         source = source_version(item)
         raw = RawRecord(source, item.payload, item.metadata)
         acl = item.permissions or ACL(None)  # unresolved identity is fail-closed

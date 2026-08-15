@@ -99,6 +99,8 @@ class RuntimeConfig:
                 provider = getattr(self, name)
                 if not all(hasattr(provider, method) for method in methods):
                     raise ValueError(f"production dependency {name} has incompatible adapter type")
+            if not getattr(self.identity_provider, "production_oidc", False):
+                raise ValueError("production requires a real OIDC/JWKS validator")
             if getattr(self.raw_storage, "kms", None) is None and not getattr(self.raw_storage, "encrypted", False):
                 raise ValueError("production raw storage must be KMS-encrypted")
         return self

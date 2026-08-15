@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import argparse, hashlib, json, os, shutil, sqlite3, tempfile, sys
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from .storage import SQLiteStore, database_quiesce_lock
 from .composition import RuntimeConfig, compose
 from .api import create_server
+from .answer import OllamaAnswerer
+from .vision import LocalOllamaVisionObserver
+from .embedding import OllamaEmbedder, input_hash
+from urllib.parse import urlsplit
 
 
 EVIDENCE_SCHEMA = "kb-pipeline.gate4-evidence.v1"
@@ -212,13 +217,95 @@ def _restore(database: Path, bundle: Path, failure_hooks=()):
             raise
 
 
+def _answerer_from_args(command, model=None, endpoint=None, timeout=None):
+    """Build answer provider only from explicit serve flags; never discover config."""
+    if command != "serve" and any(value is not None for value in (model, endpoint, timeout)):
+        raise ValueError("Ollama flags are supported only with serve")
+    if model is None:
+        if endpoint is not None or timeout is not None:
+            raise ValueError("--ollama-model is required to activate Ollama")
+        return None
+    if not model.strip() or len(model) > 128 or any(ord(char) < 32 for char in model):
+        raise ValueError("--ollama-model must be 1-128 printable characters")
+    if timeout is None:
+        timeout = 10.0
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > 120:
+        raise ValueError("--ollama-timeout must be greater than 0 and at most 120 seconds")
+    if endpoint is None:
+        endpoint = "http://127.0.0.1:11434/api/generate"
+    parsed = urlsplit(endpoint)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("--ollama-endpoint must be loopback HTTP")
+    return OllamaAnswerer(endpoint=endpoint, model=model, timeout_seconds=timeout)
+
+
+def _vision_from_args(command, model=None, endpoint=None, timeout=None):
+    if command not in {"index", "vision-reextract"} and any(value is not None for value in (model, endpoint, timeout)):
+        raise ValueError("vision flags are supported only with index or vision-reextract")
+    if model is None:
+        if endpoint is not None or timeout is not None:
+            raise ValueError("--vision-model is required to activate vision")
+        return None
+    if not model.strip() or len(model) > 128 or any(ord(char) < 32 for char in model):
+        raise ValueError("--vision-model must be 1-128 printable characters")
+    timeout = 10.0 if timeout is None else timeout
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > 120:
+        raise ValueError("--vision-timeout must be greater than 0 and at most 120 seconds")
+    endpoint = endpoint or "http://127.0.0.1:11434/api/chat"
+    return LocalOllamaVisionObserver(endpoint=endpoint, model=model, timeout_seconds=timeout)
+
+
+def _semantic_from_args(command, model=None, endpoint=None, timeout=None):
+    if command not in {"serve", "semantic-reindex"} and any(value is not None for value in (model, endpoint, timeout)):
+        raise ValueError("semantic flags are supported only with serve or semantic-reindex")
+    if model is None:
+        if command == "semantic-reindex": raise ValueError("--semantic-model is required for semantic-reindex")
+        if endpoint is not None or timeout is not None: raise ValueError("--semantic-model is required to activate semantic retrieval")
+        return None
+    timeout = 10.0 if timeout is None else timeout
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > 120:
+        raise ValueError("--semantic-timeout must be greater than 0 and at most 120 seconds")
+    endpoint = endpoint or "http://127.0.0.1:11434/api/embed"
+    return OllamaEmbedder(model=model, endpoint=endpoint, timeout_seconds=timeout)
+
+
+def _semantic_reindex(database, embedder, full=False, batch_size=16):
+    store = SQLiteStore(database)
+    docs = tuple(doc for doc in store.all() if not doc.tombstoned)
+    existing = {row["document_id"]: row for row in store.embedding_rows(embedder.model)}
+    pending = [doc for doc in docs if full or not (existing.get(doc.document_id) and existing[doc.document_id]["version"] == doc.source.version and existing[doc.document_id]["input_hash"] == input_hash(doc.title, doc.text))]
+    count = 0
+    for offset in range(0, len(pending), batch_size):
+        group = pending[offset:offset + batch_size]
+        vectors = embedder.embed(tuple(f"{doc.title}\n{doc.text}" for doc in group))
+        if len(vectors) != len(group): raise ValueError("embedding provider returned wrong batch size")
+        for doc, vector in zip(group, vectors):
+            if store.save_embedding(doc, embedder.model, vector, input_hash(doc.title, doc.text)): count += 1
+    return {"model": embedder.model, "documents": len(docs), "embedded": count, "full": full}
+
+
 def main():
-    p = argparse.ArgumentParser(); p.add_argument("command", choices=["serve", "index", "rebuild", "index-rebuild", "backup", "restore", "pilot-evidence"]); p.add_argument("database", type=Path); p.add_argument("target", type=Path, nargs="?"); p.add_argument("--source-root", type=Path, default=Path.cwd()); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8080); p.add_argument("--mode", choices=["demo", "production"], default="demo"); p.add_argument("--result-json", type=Path, help="validated QA result JSON (required for pilot-evidence)")
+    p = argparse.ArgumentParser(); p.add_argument("command", choices=["serve", "index", "rebuild", "index-rebuild", "semantic-reindex", "vision-reextract", "backup", "restore", "pilot-evidence"]); p.add_argument("database", type=Path); p.add_argument("target", type=Path, nargs="?"); p.add_argument("--source-root", type=Path, default=Path.cwd()); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8080); p.add_argument("--mode", choices=["demo", "production"], default="demo"); p.add_argument("--result-json", type=Path, help="validated QA result JSON (required for pilot-evidence)"); p.add_argument("--ollama-model", help="explicitly activate loopback Ollama answerer"); p.add_argument("--ollama-endpoint"); p.add_argument("--ollama-timeout", type=float); p.add_argument("--vision-model"); p.add_argument("--vision-endpoint"); p.add_argument("--vision-timeout", type=float); p.add_argument("--semantic-model"); p.add_argument("--semantic-endpoint"); p.add_argument("--semantic-timeout", type=float); p.add_argument("--semantic-full", "--full", dest="semantic_full", action="store_true")
     a = p.parse_args()
+    try:
+        answerer = _answerer_from_args(a.command, a.ollama_model, a.ollama_endpoint, a.ollama_timeout)
+        vision_observer = _vision_from_args(a.command, a.vision_model, a.vision_endpoint, a.vision_timeout)
+        semantic_embedder = _semantic_from_args(a.command, a.semantic_model, a.semantic_endpoint, a.semantic_timeout)
+    except ValueError as exc:
+        p.error(str(exc))
+    if a.command == "semantic-reindex":
+        try: print(json.dumps(_semantic_reindex(a.database, semantic_embedder, a.semantic_full), sort_keys=True, indent=2))
+        except Exception as exc: p.error(f"semantic reindex failed: {exc}")
+        return
+    if a.command == "vision-reextract":
+        if vision_observer is None: p.error("--vision-model is required for vision-reextract")
+        app = compose(RuntimeConfig(a.database, a.source_root, vision_observer=vision_observer))
+        print(json.dumps(app.service.reextract_images(vision_observer, a.semantic_full), sort_keys=True, indent=2))
+        return
     if a.command in {"serve", "index", "rebuild"}:
-        config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend"); app = compose(config)
+        config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend", answerer=answerer, vision_observer=vision_observer, semantic_embedder=semantic_embedder); app = compose(config)
         if a.command == "serve":
-            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results); print(f"serving on {server.server_address[0]}:{server.server_address[1]} token={token}", flush=True); server.serve_forever()
+            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production"); print(f"serving on {server.server_address[0]}:{server.server_address[1]} token={token}", flush=True); server.serve_forever()
         else:
             if a.command == "index": app.service.reconcile(app.connector, "startup")
             app.store.rebuild_index()

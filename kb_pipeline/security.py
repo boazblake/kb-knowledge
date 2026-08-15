@@ -6,6 +6,7 @@ implementations behind these ports; local adapters exist for demos/tests only.
 from __future__ import annotations
 
 import base64, hashlib, hmac, json, secrets, time
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Mapping, Protocol, FrozenSet
@@ -51,6 +52,78 @@ class KeyProvider(Protocol):
 class TenantAuthorization:
     def can_read(self, principal, tenant, source=""): return principal.can_read(tenant, source)
     def is_admin(self, principal, tenant): return principal.is_admin(tenant)
+
+
+class OIDCJWKSValidator:
+    """Production OIDC validator backed by PyJWT's JWKS client.
+
+    PyJWKClient caches JWKS and refreshes on an unknown key, which supports
+    normal signing-key rotation without accepting an untrusted key. Every
+    fetch/parse/signature failure becomes AuthenticationError (fail closed).
+    """
+    test_only = False
+    production_oidc = True
+
+    def __init__(self, issuer: str, audience: str, jwks_url: str, *,
+                 algorithms: tuple[str, ...] = ("RS256",), leeway: int = 30,
+                 cache_lifespan: int = 300, timeout: float = 5.0,
+                 tenant_claim: str = "tenant", roles_claim: str = "roles",
+                 source_scopes_claim: str = "source_scopes"):
+        if not issuer or not audience or not jwks_url:
+            raise ValueError("issuer, audience, and jwks_url are required")
+        if not algorithms or any(not isinstance(value, str) for value in algorithms):
+            raise ValueError("algorithm allow-list is required")
+        if leeway < 0 or cache_lifespan <= 0 or timeout <= 0:
+            raise ValueError("invalid OIDC clock/cache/network policy")
+        self.issuer, self.audience, self.jwks_url = issuer, audience, jwks_url
+        self.algorithms, self.leeway, self.timeout = tuple(algorithms), leeway, timeout
+        self.cache_lifespan = cache_lifespan
+        self.tenant_claim, self.roles_claim = tenant_claim, roles_claim
+        self.source_scopes_claim = source_scopes_claim
+        self._lock = threading.RLock()
+        self._client = None
+
+    def _jwks_client(self):
+        with self._lock:
+            if self._client is None:
+                try:
+                    from jwt import PyJWKClient
+                except ImportError as exc:
+                    raise AuthenticationError("PyJWT production dependency unavailable") from exc
+                self._client = PyJWKClient(self.jwks_url, cache_jwk_set=True,
+                                           lifespan=self.cache_lifespan,
+                                           timeout=self.timeout)
+            return self._client
+
+    def validate(self, token: str) -> Principal:
+        if not isinstance(token, str) or not token:
+            raise AuthenticationError("authentication token required")
+        try:
+            import jwt
+            header = jwt.get_unverified_header(token)
+            if header.get("alg") not in self.algorithms or not header.get("kid"):
+                raise AuthenticationError("algorithm or key id not allowed")
+            key = self._jwks_client().get_signing_key_from_jwt(token)
+            claims = jwt.decode(
+                token, key.key, algorithms=list(self.algorithms),
+                issuer=self.issuer, audience=self.audience,
+                leeway=self.leeway,
+                options={"require": ["sub", "iss", "aud", "exp"],
+                         "verify_exp": True, "verify_nbf": True},
+            )
+            subject, tenant = claims.get("sub"), claims.get(self.tenant_claim)
+            roles = claims.get(self.roles_claim, [])
+            scopes = claims.get(self.source_scopes_claim, [])
+            if (not isinstance(subject, str) or not subject or
+                    not isinstance(tenant, str) or not tenant or
+                    not isinstance(roles, list) or not all(isinstance(v, str) for v in roles) or
+                    not isinstance(scopes, list) or not all(isinstance(v, str) for v in scopes)):
+                raise AuthenticationError("invalid tenant authorization claims")
+            return Principal(subject, tenant, frozenset(roles), frozenset(scopes), claims["iss"])
+        except AuthenticationError:
+            raise
+        except Exception as exc:
+            raise AuthenticationError("OIDC validation failed") from exc
 
 
 def _b64(value: bytes) -> str: return base64.urlsafe_b64encode(value).rstrip(b"=").decode()

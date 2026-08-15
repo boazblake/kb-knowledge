@@ -99,9 +99,10 @@ class NangoAdapter:
     )
 
     def __init__(self, provider_config: str, connection: str, tenant: str,
-                 transport: NangoTransport | None = None, *, connector: str = "nango", cursor_store=None):
+                 transport: NangoTransport | None = None, *, connector: str = "nango", cursor_store=None,
+                 oidc_token: str | None = None):
         self.provider_config, self.connection, self.tenant = provider_config, connection, tenant
-        self.connector, self.transport = connector, transport
+        self.connector, self.transport, self.oidc_token = connector, transport, oidc_token
         self.cursor_store = cursor_store
         self.cursor: str | None = self._load_cursor()
         self._acknowledged: set[str] = set()
@@ -131,6 +132,9 @@ class NangoAdapter:
                         {"provider_config": self.provider_config, "connection": self.connection,
                          "tenant": self.tenant, "run_id": run_id, "source_revision": version,
                          "source_hash": digest}, envelope_id=raw_id)
+        if self.oidc_token is not None:
+            raw = RawRecord(source_version, payload,
+                            {**raw.metadata, "oidc_token": self.oidc_token}, envelope_id=raw_id)
         permissions = PermissionState(ACL(record.permission_readers), record.permission_resolved,
                                       record.occurred_at)
         value = None
