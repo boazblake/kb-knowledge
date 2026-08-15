@@ -76,9 +76,9 @@ def _handler(service, tokens, session_token, max_query_chars=512, max_results=10
                 return self._send(200 if status.get("status") == "ready" else 503, status)
             if frontend_root is not None:
                 root = Path(frontend_root).resolve()
-                static_names = {"/", "/index.html", "/app.js", "/styles.css", "/project-views.css",
+                static_names = {"/", "/index.html", "/app.js", "/styles.css", "/project-views.css", "/blueprint.css",
                                 "/pipeline-map.html", "/pipeline-map.js", "/repository-city.html",
-                                "/repository-city.js", "/repository-metrics.json"}
+                                "/repository-city.js", "/repository-metrics.json", "/pipeline-blueprint.html", "/pipeline-blueprint.js", "/pipeline-roadmap.html", "/pipeline-roadmap.js"}
                 if path.path in static_names:
                     name = "index.html" if path.path in {"/", "/index.html"} else path.path[1:]
                     file = root / name
