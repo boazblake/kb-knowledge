@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import random
+import uuid
 from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any, Iterator, cast
@@ -21,6 +22,10 @@ from .telemetry import span as telemetry_span
 
 class PostgresUnavailable(RuntimeError):
     """Required PostgreSQL driver or database is unavailable."""
+
+
+def _db_text(value):
+    return value.decode() if isinstance(value, bytes) else value
 
 
 def _normalize_fingerprint(value: object) -> str | None:
@@ -111,7 +116,7 @@ class PostgresAuthorityRepository:
             current = conn.execute("SELECT value FROM ingestion_checkpoints WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s", self.object_key(source, "")[:-1]).fetchone()
             if current and cursor_semantics is None:
                 raise ValueError("connector cursor comparator required")
-            if current and cursor_semantics.compare(value, current[0]) < 0:
+            if current and cursor_semantics.compare(value, _db_text(current[0])) < 0:
                 raise ValueError("checkpoint cannot move backwards")
             conn.execute("""INSERT INTO ingestion_checkpoints
                 (provider,tenant,connector,source_instance,value,complete)
@@ -125,7 +130,7 @@ class PostgresAuthorityRepository:
             row = conn.execute("""SELECT value,complete FROM ingestion_checkpoints
                 WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s""",
                                (source.provider, source.tenant, source.connector, source.source_instance)).fetchone()
-        return (row[0], row[1]) if row else None
+        return ((row[0].decode() if isinstance(row[0], bytes) else row[0]), row[1]) if row else None
 
     def accept(self, change: CanonicalChange, *, raw_object_uri: str, content_hash: str,
                audit_event: tuple[str, str, str] | None = None) -> RevisionOutcome:
@@ -159,7 +164,7 @@ class PostgresAuthorityRepository:
                     FOR UPDATE""", (source.provider, source.tenant, source.connector, source.source_instance)).fetchone()
                 if current and cursor_semantics is None:
                     raise ValueError("connector cursor comparator required")
-                if current and cursor_semantics.compare(value, current[0]) < 0:
+                if current and cursor_semantics.compare(value, _db_text(current[0])) < 0:
                     raise ValueError("checkpoint cannot move backwards")
                 conn.execute("""INSERT INTO ingestion_checkpoints
                     (provider,tenant,connector,source_instance,value,complete)
@@ -172,6 +177,19 @@ class PostgresAuthorityRepository:
 
     def accept_batch(self, entries, *, checkpoint=None, cursor_semantics=None):
         """One PostgreSQL transaction for complete batch authority effects."""
+        entries = tuple(entries)
+        if not entries:
+            raise ValueError("checkpoint batch cannot be empty")
+        namespaces = {(
+            change.source.provider, change.source.tenant,
+            change.source.connector, change.source.source_instance,
+        ) for change, *_ in entries}
+        if len(namespaces) != 1:
+            raise ValueError("checkpoint batch must share one tenant/source namespace")
+        if checkpoint is not None:
+            source = checkpoint[0]
+            if next(iter(namespaces)) != (source.provider, source.tenant, source.connector, source.source_instance):
+                raise ValueError("checkpoint namespace does not match batch")
         with self.transaction() as conn:
             outcomes = []
             for change, uri, content_hash, audit in entries:
@@ -188,7 +206,7 @@ class PostgresAuthorityRepository:
                 current = conn.execute("""SELECT value FROM ingestion_checkpoints
                     WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s FOR UPDATE""",
                     (source.provider, source.tenant, source.connector, source.source_instance)).fetchone()
-                if current and (cursor_semantics is None or cursor_semantics.compare(value, current[0]) < 0):
+                if current and (cursor_semantics is None or cursor_semantics.compare(value, _db_text(current[0])) < 0):
                     raise ValueError("checkpoint comparator rejected cursor")
                 conn.execute("""INSERT INTO ingestion_checkpoints
                     (provider,tenant,connector,source_instance,value,complete) VALUES (%s,%s,%s,%s,%s,%s)
@@ -314,6 +332,7 @@ class PostgresAuthorityRepository:
 
     def claim_outbox(self, worker: str, *, tenant: str, workload: str, limit: int = 100, lease_seconds: int = 60) -> tuple[dict[str, Any], ...]:
         """Claim pending deliveries; lease expiry makes crash recovery safe."""
+        lease_token = uuid.uuid4().hex
         with self.transaction() as conn:
             conn.execute("""UPDATE ingestion_outbox SET status='pending', lease_owner=NULL,
                 lease_expires_at=NULL WHERE status='claimed' AND lease_expires_at <= now()
@@ -324,22 +343,24 @@ class PostgresAuthorityRepository:
                 ORDER BY sequence FOR UPDATE SKIP LOCKED LIMIT %s
             ) UPDATE ingestion_outbox o SET status='claimed', lease_owner=%s, lease_expires_at=now() + (%s * interval '1 second'), attempts=o.attempts+1
               FROM picked WHERE o.sequence=picked.sequence
-              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, limit, worker, lease_seconds)).fetchall()
+              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, limit, lease_token, lease_seconds)).fetchall()
         return tuple({"sequence": r[0], "idempotency_key": r[1], "object_key": r[2],
-                      "payload": r[3], "attempts": r[4], "worker": worker, "tenant": tenant, "workload": workload} for r in rows)
+                      "payload": r[3], "attempts": r[4], "worker": worker, "lease_token": lease_token,
+                      "tenant": tenant, "workload": workload} for r in rows)
 
-    def mark_outbox_applied(self, sequence: int, worker: str) -> None:
+    def mark_outbox_applied(self, sequence: int, worker: str, *, tenant: str, workload: str, lease_token: str) -> None:
         with self.transaction() as conn:
-            count = conn.execute("UPDATE ingestion_outbox SET status='applied', completed_by=%s, lease_owner=NULL, lease_expires_at=NULL WHERE sequence=%s AND status='claimed' AND lease_owner=%s", (worker, sequence, worker)).rowcount
+            count = conn.execute("UPDATE ingestion_outbox SET status='applied', completed_by=%s, lease_owner=NULL, lease_expires_at=NULL WHERE sequence=%s AND tenant=%s AND workload=%s AND status='claimed' AND lease_owner=%s", (worker, sequence, tenant, workload, lease_token)).rowcount
             if count != 1:
                 raise PermissionError("outbox lease not owned by worker")
 
-    def mark_outbox_failed(self, sequence: int, reason: str, worker: str | None = None, *, max_attempts: int = 5, base_delay_seconds: int = 5, jitter_seconds: int = 3) -> None:
+    def mark_outbox_failed(self, sequence: int, reason: str, worker: str | None = None, *, tenant: str, workload: str, lease_token: str, max_attempts: int = 5, base_delay_seconds: int = 5, jitter_seconds: int = 3) -> None:
         with self.transaction() as conn:
-            row = conn.execute("SELECT attempts,lease_owner FROM ingestion_outbox WHERE sequence=%s FOR UPDATE", (sequence,)).fetchone()
+            row = conn.execute("SELECT attempts,lease_owner FROM ingestion_outbox WHERE sequence=%s AND tenant=%s AND workload=%s FOR UPDATE", (sequence, tenant, workload)).fetchone()
             if not row:
-                return
-            if not worker or row[1] != worker:
+                raise PermissionError("outbox lease scope not found")
+            stored_token = row[1].decode() if isinstance(row[1], bytes) else row[1]
+            if not worker or stored_token != lease_token:
                 raise PermissionError("outbox lease not owned by worker")
             terminal = row[0] >= max_attempts
             jitter = random.randint(0, max(0, jitter_seconds))

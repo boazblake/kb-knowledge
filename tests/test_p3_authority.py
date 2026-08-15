@@ -229,7 +229,8 @@ class P3AuthorityUnitTests(unittest.TestCase):
             self.assertEqual("gap", repo.accept(change(3, f"{suffix}-3"), raw_object_uri="nango://obj", content_hash="hash").value)
             claimed = repo.claim_outbox("test", tenant=tenant, workload=workload)
             self.assertEqual(1, len(claimed))
-            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", claimed[0]["worker"], max_attempts=1)
+            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", claimed[0]["worker"],
+                                    tenant=tenant, workload=workload, lease_token=claimed[0]["lease_token"], max_attempts=1)
         finally:
             repo.close()
 
@@ -302,6 +303,16 @@ class P3AuthorityUnitTests(unittest.TestCase):
         order = CursorOrder()
         try:
             repo.open()
+            with self.assertRaisesRegex(ValueError, "empty"):
+                repo.accept_batch((), checkpoint=(source, "empty", True), cursor_semantics=order)
+            other_source = IdentityNamespace("provider", f"other-batch-{suffix}", connector="connector", source_instance="instance")
+            with self.assertRaisesRegex(ValueError, "one tenant/source namespace"):
+                repo.accept_batch(((change(1), "source://1", "hash", None),
+                                   (CanonicalChange("other", other_source, 1, Operation.UPSERT, document,
+                                                    f"{suffix}-other", ProvenanceLink("test", suffix),
+                                                    PermissionState(document.acl), occurred_at=observed),
+                                    "source://other", "hash", None)),
+                                  checkpoint=(source, "mixed", True), cursor_semantics=order)
             repo.checkpoint("connector", "c1", True, source=source, cursor_semantics=order)
             outcomes = repo.accept_batch(
                 tuple((change(revision), f"source://{revision}", "hash", None) for revision in (1, 3)),
@@ -330,8 +341,10 @@ class P3AuthorityUnitTests(unittest.TestCase):
             claimed = repo.claim_outbox("owner", tenant="t", workload="c")
             for worker in (None, "", "other"):
                 with self.assertRaises(PermissionError):
-                    repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", worker)
-            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", "owner", max_attempts=1)
+                    repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", worker,
+                                            tenant="t", workload="c", lease_token="wrong")
+            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", "owner", tenant="t", workload="c",
+                                    lease_token=claimed[0]["lease_token"], max_attempts=1)
         finally:
             repo.close()
 

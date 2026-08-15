@@ -129,17 +129,22 @@ async def reconcile_outbox(repository: Any, boundary: Any, *, worker: str,
         try:
             with telemetry_span(telemetry, "workflow.start", component="workflow", tenant=tenant, workload=workload):
                 await boundary.start_ingestion_async(event)
-            repository.mark_outbox_applied(row["sequence"], worker)
+            if "lease_token" in row:
+                repository.mark_outbox_applied(row["sequence"], worker, tenant=tenant, workload=workload,
+                                               lease_token=row["lease_token"])
+            else:
+                repository.mark_outbox_applied(row["sequence"], worker)
             if telemetry: telemetry.counter("outbox.applied", tenant=tenant, workload=workload)
             started += 1
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             failure = f"Temporal start failed: {type(exc).__name__}"
-            if "worker" in row:
-                repository.mark_outbox_failed(row["sequence"], failure, row["worker"])
+            if "lease_token" in row:
+                repository.mark_outbox_failed(row["sequence"], failure, row["worker"], tenant=tenant,
+                                              workload=workload, lease_token=row["lease_token"])
             else:
-                # Compatibility with older repository rows; PostgreSQL claims always include worker.
+                # Compatibility with test/dummy repositories; PostgreSQL claims always include token.
                 repository.mark_outbox_failed(row["sequence"], failure)
             if telemetry: telemetry.counter("workflow.retry", tenant=tenant, workload=workload, retryable=True)
     return started

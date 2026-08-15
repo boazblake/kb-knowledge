@@ -153,6 +153,37 @@ class ProjectionBarrier:
         return result
 
 
+class PostgresProjectionBarrier(ProjectionBarrier):
+    """Barrier backed by durable projection and accepted outbox watermarks."""
+
+    def __init__(self, connection, *, projection: str = "document"):
+        if not re.fullmatch(r"[a-z_]+", projection):
+            raise ValueError("invalid projection name")
+        self.connection, self.projection = connection, projection
+
+    def observe(self, min_sequence: int = 0, timeout: bool = False) -> ProjectionWatermark:
+        if timeout:
+            return ProjectionWatermark(0, 0, BarrierState.TIMEOUT)
+        accepted = int(self.connection.execute(
+            "SELECT COALESCE(max(sequence), 0) FROM ingestion_outbox"
+        ).fetchone()[0])
+        checkpoint = self.connection.execute(
+            "SELECT sequence,state FROM p4_projection_checkpoints WHERE projection=%s",
+            (self.projection,),
+        ).fetchone()
+        applied = int(checkpoint[0]) if checkpoint else 0
+        stored_state = checkpoint[1] if checkpoint else BarrierState.BLOCKED.value
+        if stored_state != BarrierState.FRESH.value:
+            state = BarrierState(stored_state) if stored_state in BarrierState._value2member_map_ else BarrierState.BLOCKED
+        elif applied < min_sequence:
+            state = BarrierState.PENDING
+        elif applied < accepted:
+            state = BarrierState.STALE
+        else:
+            state = BarrierState.FRESH
+        return ProjectionWatermark(accepted, applied, state)
+
+
 class PostgresProjectionWorker:
     """Idempotent projection worker. Authority remains ingestion_authority."""
     def __init__(self, connection, *, projection: str = "document", failure: Callable[[ReplayEnvelope], None] | None = None):
@@ -169,7 +200,8 @@ class PostgresProjectionWorker:
         alias = (key.tenant, key.source, key.source_id, provenance["provider"], provenance["connector"], provenance["source_instance"])
         self.connection.execute("INSERT INTO p4_identity_aliases (tenant,source,source_id,provider,connector,source_instance) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", alias)
         existing = self.connection.execute("SELECT provider,connector,source_instance FROM p4_identity_aliases WHERE tenant=%s AND source=%s AND source_id=%s", key.key).fetchone()
-        if tuple(existing or ()) != alias[3:]:
+        existing_namespace = tuple(value.decode() if isinstance(value, bytes) else value for value in (existing or ()))
+        if existing_namespace != alias[3:]:
             raise IdentityCollision(f"source namespace collision: {key.key}")
         tombstone = self.connection.execute("SELECT tombstoned FROM p4_document WHERE tenant=%s AND source=%s AND source_id=%s", key.key).fetchone()
         if tombstone and tombstone[0] and envelope.operation != EnvelopeOperation.DELETE:
@@ -218,7 +250,8 @@ class QueryResultDTO:
 
 class PostgresFTSQueryService:
     def __init__(self, connection, *, barrier: ProjectionBarrier | None = None):
-        self.connection, self.barrier = connection, barrier or ProjectionBarrier()
+        self.connection = connection
+        self.barrier = barrier if barrier is not None else PostgresProjectionBarrier(connection)
 
     def search(self, principal: Principal, text: str, *, limit: int = 20, min_sequence: int = 0,
                source: str = "", timeout: bool = False, eventual: bool = False) -> tuple[QueryResultDTO, ...]:

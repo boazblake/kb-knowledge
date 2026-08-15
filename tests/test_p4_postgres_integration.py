@@ -75,7 +75,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         with self.connection.transaction():
-            self.connection.execute("""TRUNCATE p4_document, p4_projection_checkpoints, ingestion_authority,
+            self.connection.execute("""TRUNCATE p4_document, p4_projection_checkpoints, p4_identity_aliases, ingestion_authority,
                 ingestion_outbox, ingestion_dead_letters, ingestion_audit, ingestion_idempotency RESTART IDENTITY""")
 
     def envelope(self, revision=1, operation=EnvelopeOperation.UPSERT, *, tenant="tenant-a",
@@ -131,7 +131,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         ):
             self.apply(self.envelope(tenant=tenant, source_id=source_id, text=text, readers=readers))
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        results = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs", limit=1)
+        results = PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier()).search(principal, "alpha", source="docs", limit=1)
         self.assertEqual(("tenant-a", "allowed"), (results[0].identity.tenant, results[0].identity.source_id))
 
     def test_e2e003_p4_06_barrier_blocks_until_watermark(self):
@@ -171,7 +171,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
             self.connection.execute("UPDATE ingestion_authority SET raw_object_uri=%s,content_hash=%s WHERE tenant=%s AND connector=%s AND object_id=%s",
                                     ("s3://raw/tenant-a/doc-1", content_hash, "tenant-a", "docs", "doc-1"))
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        result = PostgresFTSQueryService(self.connection).search(principal, "citation", source="docs")[0]
+        result = PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier()).search(principal, "citation", source="docs")[0]
         self.assertTrue(verify_citation(_AuthorityConnection(self.connection), principal, result))
         self.assertFalse(verify_citation(self.connection, Principal("alice", "tenant-b", source_scopes=frozenset({"docs"})), result))
         self.assertFalse(verify_citation(self.connection, principal, QueryResultDTO(
@@ -228,7 +228,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
             with self.connection.transaction():
                 self.connection.execute("""UPDATE ingestion_outbox SET available_at=now()
                     WHERE sequence=%s AND status='pending'""", (sequence,))
-            self._mark_failed(sequence, claimed["worker"])
+            self._mark_failed(sequence, claimed)
 
         state = self.connection.execute(
             "SELECT status,attempts FROM ingestion_outbox WHERE sequence=%s", (sequence,)
@@ -253,7 +253,8 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         recovery_worker = PostgresProjectionWorker(self.connection)
         with self.connection.transaction():
             recovery_worker.apply_at_sequence(sequence, delete)
-        self.repository.mark_outbox_applied(sequence, recovered["worker"])
+        self.repository.mark_outbox_applied(sequence, recovered["worker"], tenant=recovered["tenant"],
+                                            workload=recovered["workload"], lease_token=recovered["lease_token"])
         self.assertEqual(("applied", 1), self.connection.execute(
             "SELECT status,attempts FROM ingestion_outbox WHERE sequence=%s", (sequence,)
         ).fetchone())
@@ -285,9 +286,31 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(sequence, claimed[0]["sequence"])
         return claimed[0]
 
-    def _mark_failed(self, sequence, worker):
-        self.repository.mark_outbox_failed(sequence, "injected projection failure", worker,
+    def _mark_failed(self, sequence, claimed):
+        self.repository.mark_outbox_failed(sequence, "injected projection failure", claimed["worker"],
+                                            tenant=claimed["tenant"], workload=claimed["workload"], lease_token=claimed["lease_token"],
                                             max_attempts=3, base_delay_seconds=0, jitter_seconds=0)
+
+    def test_durable_barrier_blocks_stale_projection(self):
+        self.apply(self.envelope(), sequence=1)
+        with self.connection.transaction():
+            self.connection.execute("""INSERT INTO ingestion_outbox
+                (idempotency_key,object_key,tenant,workload,payload) VALUES ('new','new','tenant-a','docs',%s)""", (Jsonb({}),))
+        with self.assertRaises(TimeoutError):
+            PostgresFTSQueryService(self.connection).search(
+                Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "searchable", source="docs")
+
+    def test_lease_completion_failure_cannot_cross_scope_with_reused_worker(self):
+        with self.connection.transaction():
+            self.connection.execute("""INSERT INTO ingestion_outbox
+                (idempotency_key,object_key,tenant,workload,payload) VALUES ('scope-a','a','tenant-a','docs',%s)""", (Jsonb({}),))
+        claimed = self.repository.claim_outbox("same-worker", tenant="tenant-a", workload="docs")[0]
+        with self.assertRaises(PermissionError):
+            self.repository.mark_outbox_applied(claimed["sequence"], "same-worker", tenant="tenant-b",
+                                                workload="docs", lease_token=claimed["lease_token"])
+        with self.assertRaises(PermissionError):
+            self.repository.mark_outbox_failed(claimed["sequence"], "cross-scope", "same-worker",
+                                               tenant="tenant-b", workload="docs", lease_token=claimed["lease_token"])
 
     def test_e2e008_p4_03_schema_is_disposable_and_repeatable(self):
         """Migration and P4 tables are available on disposable PostgreSQL."""
@@ -298,7 +321,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         self.apply(self.envelope(source="docs"))
         self.apply(self.envelope(source="mail", source_id="mail-1"))
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs", "mail"}))
-        results = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="mail")
+        results = PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier()).search(principal, "alpha", source="mail")
         self.assertEqual(["mail-1"], [item.identity.source_id for item in results])
 
     def test_e2e010_p4_09_missing_source_scope_fails_closed(self):
@@ -327,7 +350,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
     def test_citation_requires_nonempty_reference(self):
         self.apply(self.envelope())
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        result = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs")[0]
+        result = PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier()).search(principal, "alpha", source="docs")[0]
         self.assertFalse(verify_citation(self.connection, principal, QueryResultDTO(
             result.identity, result.revision, result.score, result.title, result.snippet,
             result.provenance, {"raw_reference": {"content_hash": ""}})))
