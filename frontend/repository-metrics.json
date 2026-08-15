@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-15T00:00:00Z",
+  "source": "checked-in static snapshot; no browser shell access",
+  "freshness": "stale-by-design",
+  "note": "Illustrative repository map metrics. Missing dependency/test metrics are shown as unavailable, not zero.",
+  "districts": [
+    {"path":"frontend","language":"HTML/CSS/JS","style":"interface","status":"prototype","buildings":[{"path":"frontend/index.html","loc":196,"bytes":12100,"tests":"unavailable","status":"prototype","production":"reference UI"},{"path":"frontend/app.js","loc":653,"bytes":26000,"tests":"smoke","status":"partial","production":"reference UI"},{"path":"frontend/styles.css","loc":127,"bytes":21000,"tests":"unavailable","status":"partial","production":"reference UI"}]},
+    {"path":"kb_pipeline","language":"Python","style":"service","status":"partial","buildings":[{"path":"kb_pipeline/storage.py","loc":620,"bytes":26000,"tests":"unit + integration","status":"partial","production":"local/reference"},{"path":"kb_pipeline/postgres_authority.py","loc":240,"bytes":9800,"tests":"targeted","status":"partial","production":"narrow slice only"},{"path":"kb_pipeline/security.py","loc":310,"bytes":12500,"tests":"fake adapter","status":"unproven","production":"not qualified"},{"path":"kb_pipeline/api.py","loc":190,"bytes":7800,"tests":"smoke","status":"prototype","production":"not qualified"}]},
+    {"path":"tests","language":"Python","style":"test","status":"evidence-limited","buildings":[{"path":"tests/test_gate6.py","loc":180,"bytes":7200,"tests":"passing","status":"partial","production":"synthetic-local"},{"path":"tests/test_production_oidc.py","loc":120,"bytes":4900,"tests":"passing","status":"unproven","production":"live JWKS absent"}]},
+    {"path":"docs","language":"Markdown","style":"knowledge","status":"documented","buildings":[{"path":"docs/pilot-readiness.md","loc":180,"bytes":7400,"tests":"reviewed","status":"blocked","production":"NO-GO"},{"path":"docs/phase2-sre-review.md","loc":130,"bytes":5600,"tests":"reviewed","status":"unproven","production":"SLO/RPO/RTO absent"}]}
+  ]
+}
