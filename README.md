@@ -6,6 +6,16 @@ a **local protocol demo**, not a real-data pilot.
 
 ## Status
 
+### MOCK/REFERENCE synthetic integration mode
+
+`--mode mock` composes local RSA OIDC/JWKS, AEAD KMS, in-memory S3-compatible
+storage, in-process workflow, telemetry sink, and approved synthetic connector
+fixtures behind existing ports. PostgreSQL remains authority and must be a Nix
+PostgreSQL DSN. Mode rejects SQLite and is explicitly **MOCK/REFERENCE ONLY**:
+it rejects real/customer data and cannot qualify production. Failure injection,
+rotation, retries, duplicates, and purge/no-resurrection scenarios belong in
+`tests/test_mock_environment.py` and optional PostgreSQL E2E tests.
+
 | Area | Status |
 |---|---|
 | Local file scan and UTF-8 canonicalization | Implemented |

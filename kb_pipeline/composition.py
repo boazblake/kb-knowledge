@@ -11,6 +11,9 @@ from .answer import DeterministicAnswerer
 from .storage import LexicalIndex, MemoryAuditStore, SQLiteStore
 from .postgres_authority import PostgresAuthorityRepository, PostgresIngestionService
 from .ingestion_slice import IngestionSlice
+from .mock_environment import (MOCK_REFERENCE_BANNER, ApprovedMockConnectorFixture,
+                                MockKMSProvider, MockOIDCIssuer, MockOIDCValidator, MockS3RawObjectStore,
+                                MockTemporalBoundary, MockTelemetrySink)
 
 
 class DemoACLResolver:
@@ -51,9 +54,16 @@ class RuntimeConfig:
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
 
+    @property
+    def status(self) -> dict[str, str]:
+        if self.mode == "mock":
+            return {"mode": "mock", "classification": "MOCK/REFERENCE",
+                    "qualification": "forbidden", "banner": MOCK_REFERENCE_BANNER}
+        return {"mode": self.mode, "classification": "production" if self.mode == "production" else "REFERENCE"}
+
     def validate(self) -> "RuntimeConfig":
-        if self.mode not in {"demo", "slice", "production"}:
-            raise ValueError("mode must be demo, slice, or production")
+        if self.mode not in {"demo", "slice", "mock", "production"}:
+            raise ValueError("mode must be demo, slice, mock, or production")
         # Port 0 lets OS allocate free ephemeral port for isolated test/launcher runs.
         if not (0 <= self.port <= 65535):
             raise ValueError("port must be between 0 and 65535")
@@ -64,8 +74,17 @@ class RuntimeConfig:
         if self.max_request_bytes < 1 or self.max_request_bytes > 50 * 1024 * 1024: raise ValueError("max_request_bytes out of range")
         if self.max_replay_batch < 1 or self.max_replay_batch > 10000: raise ValueError("max_replay_batch out of range")
         if self.max_projection_lag < 0 or self.max_projection_lag > 1000000: raise ValueError("max_projection_lag out of range")
-        if self.mode != "production" and (self.source_root is None or not self.source_root.is_dir()):
+        if self.mode not in {"production", "mock"} and (self.source_root is None or not self.source_root.is_dir()):
             raise ValueError("source_root must be a directory")
+        if self.mode == "mock" and not str(self.database).lower().startswith(("postgres://", "postgresql://")):
+            raise ValueError("MOCK/REFERENCE mode requires Nix PostgreSQL DSN; SQLite forbidden")
+        if self.mode == "mock":
+            if self.connector is not None and not getattr(self.connector, "synthetic_fixture", False):
+                raise ValueError("MOCK/REFERENCE mode accepts approved synthetic connector fixture only")
+            for name, provider in (("identity_provider", self.identity_provider), ("key_provider", self.key_provider),
+                                   ("raw_storage", self.raw_storage), ("workflow", self.workflow), ("telemetry", self.telemetry)):
+                if provider is not None and not getattr(provider, "test_only", False):
+                    raise ValueError(f"MOCK/REFERENCE dependency {name} must be test-only")
         if self.mode == "production":
             database = str(self.database).lower()
             if database == ":memory:" or database.endswith((".sqlite", ".sqlite3", ".db")) or not database.startswith(("postgres://", "postgresql://")):
@@ -116,6 +135,7 @@ class Composition:
     connector: Any
     service: Any
     ingestion: Any | None = None
+    oidc_issuer: Any | None = None
 
 
 def compose(config: RuntimeConfig) -> Composition:
@@ -132,6 +152,30 @@ def compose(config: RuntimeConfig) -> Composition:
                                             telemetry=config.telemetry)
         return Composition(config, repository, config.connector, service,
                            IngestionSlice(config.connector, service, config.workflow, config.telemetry))
+    if config.mode == "mock":
+        # MOCK/REFERENCE wiring intentionally uses the same PostgreSQL authority
+        # and production service boundary. Only provider adapters are local.
+        issuer = None
+        identity = config.identity_provider
+        if identity is None:
+            issuer = MockOIDCIssuer()
+            jwks_url = issuer.start()
+            identity = MockOIDCValidator(issuer.issuer, issuer.audience, jwks_url)
+        kms = config.key_provider or MockKMSProvider(b"mock-kms-master-key-32-bytes------")
+        raw = config.raw_storage or MockS3RawObjectStore(kms=kms)
+        connector = config.connector or ApprovedMockConnectorFixture()
+        workflow = config.workflow or MockTemporalBoundary()
+        telemetry = config.telemetry or MockTelemetrySink()
+        repository = config.authority_repository or PostgresAuthorityRepository(str(config.database))
+        repository.open()
+        service = PostgresIngestionService(repository, connector, ContentAwareCanonicalizer(),
+                                            raw_storage=raw, identity_provider=identity,
+                                            key_provider=kms, telemetry=telemetry)
+        composition = Composition(config, repository, connector, service,
+                                  IngestionSlice(connector, service, workflow, telemetry))
+        # Keep issuer reachable for fixture teardown without changing public port.
+        composition.oidc_issuer = issuer
+        return composition
     store = SQLiteStore(config.database, payload_provider=config.payload_provider)
     assert config.source_root is not None
     connector = LocalFilesConnector(config.source_root)
