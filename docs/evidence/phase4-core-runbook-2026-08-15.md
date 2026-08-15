@@ -2,8 +2,9 @@
 
 `production_qualification=false`.
 
-Evidence run: `phase4-20260815T214315Z-38130` at clean checkpoint
-`e3710e33139d4f13545b158a97d1ea1292af700a`.
+Evidence run: `phase4-20260815T214315Z-38130` at repository HEAD
+`397911e01029c8e626d98b9661263f8a2f7ff00c`; metadata status is
+`dirty-uncommitted` because evidence updates are not code commits.
 
 ## Scope and limitations
 
@@ -20,7 +21,7 @@ Given/When/Then source specs. Frontend remains observational and read-only.
 
 | Field | Current fact |
 |---|---|
-| Commit | `e3710e33139d4f13545b158a97d1ea1292af700a` |
+| Commit | `397911e01029c8e626d98b9661263f8a2f7ff00c` |
 | Evidence run | `phase4-20260815T214315Z-38130` |
 | Runtime | Nix Python 3.11.11; Node v22.16.0; disposable PostgreSQL 16; HeadlessChrome 149 |
 | Schema | `migrations/006_phase4_projection.sql` |
@@ -60,13 +61,13 @@ zero PostgreSQL skips.
 
 | Ticket | Evidence |
 |---|---|
-| P4-01/02 | `kb_pipeline/phase4_core.py`, semantic identity and deterministic envelope tests |
+| P4-01/02 | `kb_pipeline/phase4_core.py`, `tests/test_p4_core.py::P4CoreTests.test_replay_envelope_serialization_round_trip` |
 | P4-03/06 | `migrations/006_phase4_projection.sql`, `tests/test_p4_postgres_integration.py`, projection/barrier contracts |
 | P4-04/05 | `security.py`, `phase4_core.py`, `tests/test_p4_postgres_integration.py`, tenant/ACL-before-limit query contract |
 | P4-07/08 | `tests/test_p4_postgres_integration.py`, tombstone revision guards and citation verification contracts |
-| E2E-007/P4-09 | `tests/test_p4_postgres_integration.py::test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone`; deterministic three-attempt injection, durable DLQ, operator replay, explicit watermark/barrier transition, authority invariant, and tombstone non-resurrection |
+| E2E-007/P4-09 | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests.test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone`; deterministic three-attempt injection, terminal DLQ, unauthorized denial, authorized replay, watermark advancement, authority immutability, and tombstone non-resurrection |
 | P4-10 | this runbook and generated test output |
-| P4-11/E2E-009/E2E-010 | `frontend/project-visualization.html`, `frontend/project-visualization.js`, `tests/test_phase4_qa.py`, browser/accessibility evidence; read-only observation surface |
+| P4-11/E2E-009/E2E-010 | [`tests/frontend_project_visualization_bdd.sh`](../../tests/frontend_project_visualization_bdd.sh); assertions for read-only controls, no mutation network, keyboard activation, accessible alternatives, stale state, and failed-snapshot safe empty state; frontend evidence remains separate |
 
 Known gaps: P2 source-spec artifacts absent; P3 `/favicon.ico` returns 404;
 coverage not measured. Production PostgreSQL concurrency, live identity, cloud

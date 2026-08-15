@@ -57,26 +57,26 @@ executable tests, not narrative evidence.
 **Given** backend evidence is non-production
 **When** frontend QA runs
 **Then** no backend qualification claim is inferred
-**Test:** [`Phase4FrontendQA`](../../tests/test_phase4_qa.py)
+**Test:** [`tests/frontend_project_visualization_bdd.sh`](../../tests/frontend_project_visualization_bdd.sh) — assertions `Given reference metadata...`, `Given read-only visualization...`, `When page loads...no mutation network request`, `Given stale reference state...`.
 
 ### E2E-010 — accessibility boundary
 **Given** frontend tests are outside this backend change
 **When** existing frontend QA runs
 **Then** backend BDD evidence remains independent
-**Test:** [`Phase4FrontendQA`](../../tests/test_phase4_qa.py)
+**Test:** [`tests/frontend_project_visualization_bdd.sh`](../../tests/frontend_project_visualization_bdd.sh) — assertions `Given keyboard focus...`, `Given visual alternatives...`, `Given failed snapshot delivery...`.
 
 ## P4 scenarios
 
 | ID | Given / When / Then | Exact test |
 |---|---|---|
 | P4-01 | Given full semantic identity; When projection stores it; Then tuple is preserved | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e002_duplicate_same_revision_conflict_full_identity_tuple` |
-| P4-02 | Given replay envelope; When outbox serializes/deserializes; Then identity and revision round-trip | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e001_p4_03_worker_fts_and_projection_barrier` |
+| P4-02 | Given replay envelope; When outbox serializes/deserializes; Then identity and revision round-trip | `tests/test_p4_core.py::P4CoreTests::test_replay_envelope_serialization_round_trip` |
 | P4-03 | Given authority commit; When claim/apply/barrier runs; Then durable watermark gates query | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e001_authority_commit_outbox_projection_barrier_query` |
 | P4-04 | Given unauthorized rows rank higher; When scoped query runs; Then ACL precedes limit | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e002_p4_04_acl_before_limit_and_tenant_isolation` |
 | P4-05 | Given source-scoped principal; When FTS query runs; Then provenance DTO is bounded | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e009_p4_05_source_filter_is_enforced` |
 | P4-06 | Given applied watermark below minimum; When barrier observes; Then state is pending/stale, never fresh | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e003_p4_06_barrier_blocks_until_watermark` |
 | P4-07 | Given delete tombstone; When stale replay arrives; Then no resurrection | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e004_delete_no_resurrection` |
 | P4-08 | Given citation; When hash, revision, ACL, or tombstone mismatches; Then verification fails | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_e2e006_citation_tombstone_source_scope_rejection` |
-| P4-09 | Given terminal DLQ; When unauthorized/authorized Principal replays; Then deny/accept is observable | `tests/test_p1_p2_backend_bdd.py::BackendBDDPostgres::test_p4011_dlq_replay_authorized_vs_unauthorized_principal` |
+| P4-09 | Given terminal DLQ; When unauthorized/authorized Principal replays; Then terminal state, recovery, watermark advancement, and authority immutability are observable | `tests/test_p4_postgres_integration.py::P4PostgresIntegrationTests::test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone` |
 | P4-10 | Given evidence ledger; When validator runs; Then current commit and production boundary are checked | `tests/test_phase4_evidence.py::test_phase4_bdd_evidence_validator` |
-| P4-11 | Given frontend QA remains unchanged; When full suite runs; Then backend evidence stays separate | `tests/test_phase4_qa.py::Phase4FrontendQA` |
+| P4-11 | Given frontend observation and accessibility checks run; When browser BDD executes; Then read-only, no-mutation, stale, failed-state, and accessibility assertions remain separate from backend evidence | [`tests/frontend_project_visualization_bdd.sh`](../../tests/frontend_project_visualization_bdd.sh) — assertions `Given read-only visualization...`, `When page loads...no mutation network request`, `Given keyboard focus...`, `Given visual alternatives...`, `Given stale reference state...`, `Given failed snapshot delivery...` |

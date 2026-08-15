@@ -17,10 +17,10 @@ class Phase4EvidenceTests(unittest.TestCase):
         spec = SPEC.read_text()
         current_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         self.assertIs(ledger["production_qualification"], False)
-        self.assertEqual(0, subprocess.run(
-            ["git", "merge-base", "--is-ancestor", ledger["commit"], current_commit],
-            cwd=ROOT,
-        ).returncode)
+        # Metadata may be updated while worktree is dirty, but cannot point at
+        # an older ancestor and imply those code changes were verified.
+        self.assertEqual(current_commit, ledger["commit"])
+        self.assertIn(ledger["git_status"], {"clean", "dirty-uncommitted"})
         self.assertEqual("migrations/006_phase4_projection.sql", ledger["schema_scope"]["migration"])
         expected = {f"E2E-{i:03d}" for i in range(1, 11)} | {f"P4-{i:02d}" for i in range(1, 12)}
         self.assertEqual(expected, {item["id"] for item in ledger["runs"]})
@@ -33,5 +33,7 @@ class Phase4EvidenceTests(unittest.TestCase):
                      "test_e2e002_duplicate_same_revision_conflict_full_identity_tuple",
                      "test_e2e003_gap_quarantine_recovery", "test_e2e004_delete_no_resurrection",
                      "test_e2e006_citation_tombstone_source_scope_rejection",
-                     "test_p4011_dlq_replay_authorized_vs_unauthorized_principal"):
+                     "test_p4011_dlq_replay_authorized_vs_unauthorized_principal",
+                     "test_replay_envelope_serialization_round_trip",
+                     "test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone"):
             self.assertIn(name, spec)

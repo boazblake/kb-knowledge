@@ -248,9 +248,20 @@ class P4PostgresIntegrationTests(unittest.TestCase):
                AND source_instance='local' AND object_id='doc-1'"""
         ).fetchone())
 
+        with self.assertRaises(PermissionError):
+            manual_retry_dead_letter(
+                self.repository, sequence,
+                operator=Principal("reader", "tenant-a", roles=frozenset({"reader"})),
+            )
         with self.assertRaises(ValueError):
             manual_retry_dead_letter(self.repository, sequence, operator=" ")
-        manual_retry_dead_letter(self.repository, sequence, operator="oncall")
+        manual_retry_dead_letter(
+            self.repository, sequence,
+            operator=Principal("oncall", "tenant-a", roles=frozenset({"admin"})),
+        )
+        self.assertEqual(("pending", 0), self.connection.execute(
+            "SELECT status,attempts FROM ingestion_outbox WHERE sequence=%s", (sequence,)
+        ).fetchone())
         recovered = self._claim_until_available(sequence, "p4-recovery")
         recovery_worker = PostgresProjectionWorker(self.connection)
         with self.connection.transaction():
@@ -263,6 +274,14 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual((2, sequence, "fresh"), self.connection.execute(
             """SELECT revision,sequence,state FROM p4_document d JOIN p4_projection_checkpoints c ON c.projection='document'
              WHERE d.source_id='doc-1'"""
+        ).fetchone())
+        self.assertEqual((sequence,), self.connection.execute(
+            "SELECT sequence FROM p4_projection_checkpoints WHERE projection='document'"
+        ).fetchone())
+        self.assertEqual(authority_before, self.connection.execute(
+            """SELECT revision,operation,payload FROM ingestion_authority
+             WHERE provider='p4' AND tenant='tenant-a' AND connector='docs'
+               AND source_instance='local' AND object_id='doc-1'"""
         ).fetchone())
 
         barrier = ProjectionBarrier(accepted=sequence, applied=sequence - 1)

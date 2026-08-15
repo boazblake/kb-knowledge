@@ -150,9 +150,10 @@ async def reconcile_outbox(repository: Any, boundary: Any, *, worker: str,
     return started
 
 
-def manual_retry_dead_letter(repository: Any, sequence: int, *, operator: str, telemetry: Any = None) -> None:
+def manual_retry_dead_letter(repository: Any, sequence: int, *, operator: Any, telemetry: Any = None) -> None:
     """Explicit operator boundary. No automatic DLQ replay."""
-    if not operator.strip():
+    subject = getattr(operator, "subject", operator if isinstance(operator, str) else "")
+    if not isinstance(subject, str) or not subject.strip():
         raise ValueError("operator identity required")
     retry = getattr(repository, "retry_dead_letter", None)
     if retry is None:

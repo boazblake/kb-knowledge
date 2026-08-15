@@ -18,7 +18,7 @@ class P4CoreTests(unittest.TestCase):
         with self.assertRaises(IdentityCollision):
             registry.register(identity, provider="other", connector="github", source_instance="c1")
 
-    def test_envelope_replay_is_deterministic(self):
+    def test_replay_envelope_serialization_round_trip(self):
         envelope = ReplayEnvelope("event", "idem", SemanticIdentity("t", "s", "id"), 1,
                                   EnvelopeOperation.UPSERT, {"text": "x"}, {"content_hash": "h"},
                                   {"provider": "p"}, {"readers": ["u"]}, "corr",

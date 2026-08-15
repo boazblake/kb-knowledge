@@ -55,13 +55,16 @@ JSON.stringify(location.protocol === 'http:' && document.title === 'Project visu
 EOF
 )"
 
+# E2E-009/P4-11 metadata assertion: mode, qualification, committed hashes, and
+# prior-recorded/dirty-worktree scope remain visible and internally consistent.
 check 'Given reference metadata, When page renders, Then mode, qualification, commit, and scope agree' \
   "$(eval_page <<'EOF'
 const text = document.body.innerText;
-JSON.stringify(text.includes('MOCK / REFERENCE') && text.includes('production_qualification=false') && text.includes('fd65de8') && text.includes('development/mock scope only') && text.includes('edc9083'));
+JSON.stringify(text.includes('MOCK / REFERENCE') && text.includes('production_qualification=false') && text.includes('1656b0e') && text.includes('development/mock scope only') && text.includes('397911e') && text.includes('uncommitted changes excluded'));
 EOF
 )"
 
+# E2E-009 assertion: controls and network remain read-only/no-mutation.
 check 'Given read-only visualization, When controls are enumerated, Then no mutation control exists' \
   "$(eval_page <<'EOF'
 const controls = [...document.querySelectorAll('button, input, select, textarea, form')];
@@ -84,24 +87,28 @@ EOF
 
 agent-browser --session "$SESSION" focus '#flow-nodes .flow-node:first-child' >/dev/null
 agent-browser --session "$SESSION" press Enter >/dev/null
+# E2E-010 assertion: keyboard activation exposes observable detail.
 check 'Given keyboard focus, When Enter activates blueprint node, Then detail becomes observable' \
   "$(eval_page <<'EOF'
 JSON.stringify(document.activeElement?.getAttribute('role') === 'button' && document.querySelector('#flow-detail').innerText.includes('Local files'));
 EOF
 )"
 
+# E2E-010 assertion: accessible alternatives expose table/list content.
 check 'Given visual alternatives, When accessible content is inspected, Then tables and lists contain rows' \
   "$(eval_page <<'EOF'
 JSON.stringify(document.querySelectorAll('table tbody tr').length >= 4 && document.querySelectorAll('details.accessible ul li').length >= 4 && document.querySelectorAll('details.accessible table').length >= 2);
 EOF
 )"
 
+# E2E-009/E2E-010 assertion: stale state remains explicit and safe.
 check 'Given stale reference state, When page renders, Then stale status remains explicit and safe' \
   "$(eval_page <<'EOF'
 JSON.stringify(document.documentElement.dataset.snapshotState === 'stale' && document.body.innerText.includes('stale') && document.body.innerText.includes('not live production'));
 EOF
 )"
 
+# E2E-010 assertion: failed snapshot delivery exposes safe empty state.
 # Abort shared status script to model failed snapshot delivery. App must keep its
 # shell usable and expose safe empty-state text instead of throwing.
 agent-browser --session "$FAIL_SESSION" network route '**/visualization-status.js' --abort >/dev/null
