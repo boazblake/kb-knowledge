@@ -249,10 +249,12 @@ class PostgresAuthorityRepository:
         duplicate = conn.execute("SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
         if duplicate:
             return RevisionOutcome.DUPLICATE if _fingerprints_match(duplicate[0], fingerprint) else RevisionOutcome.CONFLICT
-        row = conn.execute("""SELECT revision FROM ingestion_authority
+        row = conn.execute("""SELECT revision,operation FROM ingestion_authority
                 WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s AND object_id=%s
                 FOR UPDATE""", key[:-1]).fetchone()
         current = row[0] if row else 0
+        if row and row[1] == "delete" and change.operation.value != "delete":
+            return RevisionOutcome.STALE
         if change.revision <= current:
             return RevisionOutcome.STALE
         if change.revision > current + 1:
@@ -309,7 +311,9 @@ class PostgresAuthorityRepository:
     def claim_outbox(self, worker: str, *, tenant: str, workload: str, limit: int = 100, lease_seconds: int = 60) -> tuple[dict[str, Any], ...]:
         """Claim pending deliveries; lease expiry makes crash recovery safe."""
         with self.transaction() as conn:
-            conn.execute("UPDATE ingestion_outbox SET status='pending', lease_owner=NULL, lease_expires_at=NULL WHERE status='claimed' AND lease_expires_at <= now()")
+            conn.execute("""UPDATE ingestion_outbox SET status='pending', lease_owner=NULL,
+                lease_expires_at=NULL WHERE status='claimed' AND lease_expires_at <= now()
+                AND tenant=%s AND workload=%s""", (tenant, workload))
             rows = conn.execute("""WITH picked AS (
                 SELECT sequence FROM ingestion_outbox
                 WHERE status='pending' AND available_at <= now() AND tenant=%s AND workload=%s

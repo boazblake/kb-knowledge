@@ -1,3 +1,4 @@
+const S = window.VISUALIZATION_STATUS || (() => { const request = new XMLHttpRequest(); request.open('GET', 'visualization-status.json', false); request.send(); const data = JSON.parse(request.responseText); if (!data.commits || data.production_qualification !== false) throw new Error('visualization status mismatch'); return data; })();
 const nodes=[
 ['files','Local files','Sources / input',90,145,'complete','Input','UTF-8 scan; narrow fixtures.','adapters.py; ingestion_slice.py','7de5dbaa','Qualify real source contract.','No'],
 ['connectors','Connectors','Sources / input',90,285,'partial','Connector','Nango experiment; no provider evidence.','nango_adapter.py; production_adapters.py','00cbc646','Production identity/KMS/provider evidence.','Yes'],
@@ -13,9 +14,9 @@ const nodes=[
 ['ops','OTel / SLO / on-call','Cross-cutting identity / observability',260,455,'blocked','Observability','Telemetry ports; load/SLO harness.','telemetry.py; pilot-readiness.md','e10de7c','Real deployment, alerts, rehearsal.','Yes'],
 ['identity','OIDC / JWKS identity','Cross-cutting identity / observability',600,455,'partial','Identity & Access','OIDC local JWKS packet.','security.py; oidc-jwks-local-2026-08-15.md','e10de7c','Live rotation and tenant policy evidence.','Yes']
 ];
-const S = window.VISUALIZATION_STATUS || {decision:'Production NO-GO',snapshot:'30283d3',suite:{pass:12,run:12},provider:{liveCalls:0}};
+nodes.forEach(node => { node[9] = S.commits.implementation; });
 const fact = document.createElement('p'); fact.className = 'scope-note';
-fact.textContent = `${S.decision}. GREEN local evidence: connector contracts ${S.suite.pass}/${S.suite.run}; mock PostgreSQL E2E documented; full mock flow passed previously. YELLOW live provider gap: endpoints and credentials absent. RED production qualification. ${S.provider.liveCalls} live calls. Local evidence does not equal production readiness.`;
+fact.textContent = `${S.decision}. ${S.evidenceLabel} Implementation ${S.commits.implementation}; docs ${S.commits.docs}. Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}; disposable PostgreSQL ${S.evidenceRun.disposablePostgresqlFull.passed}/${S.evidenceRun.disposablePostgresqlFull.failed}; targeted P4 ${S.evidenceRun.targetedP4.passed}/${S.evidenceRun.targetedP4.failed}; labels ${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}. ${S.provider.liveCalls} live calls.`;
 document.querySelector('.blueprint-main')?.insertBefore(fact, document.querySelector('.blueprint-grid'));
 document.querySelector('.no-go').textContent = `${S.decision} · MOCK / REFERENCE only; real provider endpoints and credentials absent; zero live calls. Snapshot: ${S.snapshot}.`;
 document.querySelector('.blueprint-main > .scope-note')?.replaceChildren(document.createTextNode('pipelineflow.png labels. Green DONE; yellow PARTIAL; red BLOCKED; blue DEFERRED. Local evidence never equals production readiness.'));

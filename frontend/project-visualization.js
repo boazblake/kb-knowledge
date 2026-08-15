@@ -35,9 +35,21 @@
     ['tests','Python','test',[['tests/test_remediation_lane.py','Remediation lane','5/5 passing','DONE','custom local validation'],['tests/test_phase4_qa.py','Atomic acceptance','21/21 passing','DONE','targeted local matrix']]],
     ['docs','Markdown','knowledge',[['docs/pilot-readiness.md','Pilot readiness','reviewed','BLOCKED','SEC/OPS NO-GO'],['docs/runbook.md','Runbook','reviewed','PARTIAL','production rehearsal absent']]]
   ];
+  components[1][3] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}; real provider endpoints and credentials absent.`;
+  dependencies[0][1][2][2] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}`;
+  dependencies[2][1][0][2] = `Disposable PostgreSQL ${S.evidenceRun.disposablePostgresqlFull.passed}/${S.evidenceRun.disposablePostgresqlFull.failed}; targeted P4 ${S.evidenceRun.targetedP4.passed}/${S.evidenceRun.targetedP4.failed}`;
+  city[1][3][1][3] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}`;
+  city[2][3][0][3] = `Labeled scenarios ${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}`;
   function $(selector) { return document.querySelector(selector); }
-  $('#suite-count').textContent = `${S.suite.pass}/${S.suite.run}`;
-  $('#postgres-count').textContent = S.postgresValidation.status;
+  const runLabel = run => `${run.passed}/${run.failed}`;
+  document.querySelector('#summary > div:first-child p:last-child').textContent = `Implementation checkpoint ${S.commits.implementation}; docs metadata ${S.commits.docs}. ${S.evidenceLabel}`;
+  const metricGrid = document.querySelector('.metric-grid');
+  metricGrid.replaceChildren(...[
+    ['Nix full', runLabel(S.evidenceRun.nixFull), 'passed / failed'],
+    ['Disposable PostgreSQL', runLabel(S.evidenceRun.disposablePostgresqlFull), 'passed / failed'],
+    ['Targeted P4', runLabel(S.evidenceRun.targetedP4), 'passed / failed'],
+    ['Labeled scenarios', `${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}`, 'passed / total']
+  ].map(([label, value, suffix]) => { const item = document.createElement('div'); item.innerHTML = `<strong>${value}</strong><span>${label} ${suffix}</span>`; return item; }));
   $('#next-step').textContent = S.next;
   $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
   $('#scenario-list').innerHTML = S.scenarios.map(item => `<li>${esc(item)} <span class="status-chip done">PASS</span></li>`).join('');

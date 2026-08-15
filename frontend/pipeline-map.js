@@ -1,9 +1,11 @@
-const S = window.VISUALIZATION_STATUS || {snapshot:'30283d3',provider:{liveCalls:0}};
+const S = window.VISUALIZATION_STATUS || (() => { const request = new XMLHttpRequest(); request.open('GET', 'visualization-status.json', false); request.send(); const data = JSON.parse(request.responseText); if (!data.commits || data.production_qualification !== false) throw new Error('visualization status mismatch'); return data; })();
+const E = S.evidenceRun;
+document.querySelector('.evidence-note p').textContent = `Reviewed evidence: implementation ${S.commits.implementation}; docs ${S.commits.docs}; Nix full ${E.nixFull.passed}/${E.nixFull.failed}; disposable PostgreSQL ${E.disposablePostgresqlFull.passed}/${E.disposablePostgresqlFull.failed}; targeted P4 ${E.targetedP4.passed}/${E.targetedP4.failed}; labeled scenarios ${E.labels.passed}/${E.labels.total}. Production qualification=false.`;
 const stages = [
   ['Input','DONE','DONE','PARTIAL','Frontend browser verification; local file scan.','Approved source contract absent.'],
-  ['Connector','PARTIAL','DEFERRED','PARTIAL','12/12 connector contract tests passed; zero live calls.','Approved non-production provider configuration, endpoints, and credentials absent.'],
+  ['Connector','PARTIAL','DEFERRED','PARTIAL',`Reviewed evidence: Nix ${E.nixFull.passed}/${E.nixFull.failed}; zero live calls.`,'Approved non-production provider configuration, endpoints, and credentials absent.'],
   ['Canonical Model','DONE','DEFERRED','PARTIAL','Protocol, idempotency, quarantine fixtures.','Real-data qualification absent.'],
-  ['Knowledge Engine','PARTIAL','BLOCKED','DONE','PostgreSQL authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','KMS/S3/Temporal/OTel live evidence and production RPO/RTO absent.'],
+  ['Knowledge Engine','PARTIAL','BLOCKED','DONE',`Disposable PostgreSQL ${E.disposablePostgresqlFull.passed}/${E.disposablePostgresqlFull.failed}; targeted P4 ${E.targetedP4.passed}/${E.targetedP4.failed}; labels ${E.labels.passed}/${E.labels.total}.`,'KMS/S3/Temporal/OTel live evidence and production RPO/RTO absent.'],
   ['Output','PARTIAL','BLOCKED','PARTIAL','Frontend browser verification; local search/report.','Approved deployment and production SLO absent.'],
   ['Identity & Access','PARTIAL','BLOCKED','PARTIAL','OIDC local JWKS packet.','Live OIDC provider and tenant evidence absent.'],
   ['Observability','PARTIAL','BLOCKED','PARTIAL','Local contract evidence only.','Live OTel, alerts, on-call, production load/SLO absent.'],
@@ -15,7 +17,7 @@ const done = stages.filter(stage => stage.evidence === 'DONE').length;
 const denominator = 15;
 document.querySelector('#completion-value').textContent = `${Math.round(done / denominator * 100)}%`;
 document.querySelector('#completion-fill').style.width = `${done / denominator * 100}%`;
-document.querySelector('#completion-method').textContent = `${done} / ${denominator} named production qualification obligations evidenced; test counts excluded.`;
+document.querySelector('#completion-method').textContent = `${done} / ${denominator} named production qualification obligations evidenced; Nix ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}, disposable PostgreSQL ${S.evidenceRun.disposablePostgresqlFull.passed}/${S.evidenceRun.disposablePostgresqlFull.failed}, targeted P4 ${S.evidenceRun.targetedP4.passed}/${S.evidenceRun.targetedP4.failed}; test counts excluded.`;
 stages.forEach((stage, index) => {
   const article = document.createElement('article');
   article.className = 'stage-card'; article.tabIndex = 0;

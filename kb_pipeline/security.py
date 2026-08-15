@@ -29,7 +29,8 @@ class Principal:
     issuer: str = ""
 
     def can_read(self, tenant: str, source: str = "") -> bool:
-        return self.tenant == tenant and (not source or source in self.source_scopes or "*" in self.source_scopes)
+        return (self.tenant == tenant and bool(source) and
+                (source in self.source_scopes or "*" in self.source_scopes))
 
     def is_admin(self, tenant: str) -> bool:
         return self.tenant == tenant and "admin" in self.roles

@@ -38,13 +38,13 @@ class MockPostgresE2ETests(unittest.TestCase):
                 authority_repository=repo, identity_provider=MockOIDCValidator(issuer.issuer, issuer.audience, jwks),
                 key_provider=kms, raw_storage=raw, workflow=workflow, telemetry=telemetry))
             _, accepted = app.ingestion.poll_once("mock-job")
-            self.assertTrue(accepted)
-            self.assertEqual(1, len(workflow.started))
-            self.assertEqual(4, repo.queue_metrics(tenant="mock-tenant", workload="mock-connector")["queue_depth"])
+            self.assertFalse(accepted)  # default policy forbids resurrection after delete
+            self.assertEqual(0, len(workflow.started))
+            self.assertEqual(3, repo.queue_metrics(tenant="mock-tenant", workload="mock-connector")["queue_depth"])
             self.assertTrue(any(span["name"] == "auth.ingestion" for span in telemetry.spans))
             self.assertTrue(repo.raw_reference(connector.source, "object-1"))
             reference = repo.raw_reference(connector.source, "object-1")
-            self.assertEqual(4, reference[2])
+            self.assertEqual(3, reference[2])
             uri = reference[0].decode() if isinstance(reference[0], bytes) else reference[0]
             key = uri.replace(f"s3://{raw.bucket}/", "")
             self.assertNotIn(b"MOCK/REFERENCE", raw.mock_client.objects[(raw.bucket, key)][0])

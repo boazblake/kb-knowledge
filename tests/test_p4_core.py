@@ -5,6 +5,7 @@ from kb_pipeline.phase4_core import (
     BarrierState, EnvelopeOperation, IdentityCollision, IdentityRegistry,
     ProjectionBarrier, ReplayEnvelope, SemanticIdentity, resolve_legacy_identity,
 )
+from kb_pipeline.security import Principal
 
 
 class P4CoreTests(unittest.TestCase):
@@ -32,6 +33,17 @@ class P4CoreTests(unittest.TestCase):
         barrier.blocked = True
         self.assertEqual(BarrierState.BLOCKED, barrier.observe(8).state)
         self.assertEqual(BarrierState.TIMEOUT, barrier.observe(8, timeout=True).state)
+
+    def test_source_scoped_principal_requires_explicit_source(self):
+        principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
+        self.assertFalse(principal.can_read("tenant-a", ""))
+        self.assertTrue(principal.can_read("tenant-a", "docs"))
+
+    def test_stale_barrier_requires_explicit_eventual_mode(self):
+        barrier = ProjectionBarrier(accepted=2, applied=1)
+        with self.assertRaises(TimeoutError):
+            barrier.require(0)
+        self.assertEqual(BarrierState.STALE, barrier.require(0, eventual=True).state)
 
 
 if __name__ == "__main__":

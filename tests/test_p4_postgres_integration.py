@@ -76,7 +76,7 @@ class P4PostgresIntegrationTests(unittest.TestCase):
     def setUp(self):
         with self.connection.transaction():
             self.connection.execute("""TRUNCATE p4_document, p4_projection_checkpoints, ingestion_authority,
-                ingestion_outbox, ingestion_dead_letters, ingestion_audit, ingestion_idempotency""")
+                ingestion_outbox, ingestion_dead_letters, ingestion_audit, ingestion_idempotency RESTART IDENTITY""")
 
     def envelope(self, revision=1, operation=EnvelopeOperation.UPSERT, *, tenant="tenant-a",
                  source="docs", source_id="doc-1", text="alpha searchable", readers=("alice",),
@@ -115,12 +115,12 @@ class P4PostgresIntegrationTests(unittest.TestCase):
 
     def test_e2e001_p4_03_worker_fts_and_projection_barrier(self):
         """Authority commit feeds worker, FTS, checkpoint, and freshness barrier."""
-        self.apply(self.envelope(), sequence=7)
-        barrier = ProjectionBarrier(accepted=7, applied=7)
+        self.apply(self.envelope(), sequence=1)
+        barrier = ProjectionBarrier(accepted=1, applied=1)
         result = PostgresFTSQueryService(self.connection, barrier=barrier).search(
-            Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "searchable", min_sequence=7)
+            Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "searchable", source="docs", min_sequence=1)
         self.assertEqual("doc-1", result[0].identity.source_id)
-        self.assertEqual(BarrierState.FRESH, barrier.observe(7).state)
+        self.assertEqual(BarrierState.FRESH, barrier.observe(1).state)
 
     def test_e2e002_p4_04_acl_before_limit_and_tenant_isolation(self):
         """Unauthorized high-ranked rows cannot consume authorized result limit."""
@@ -131,14 +131,14 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         ):
             self.apply(self.envelope(tenant=tenant, source_id=source_id, text=text, readers=readers))
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        results = PostgresFTSQueryService(self.connection).search(principal, "alpha", limit=1)
+        results = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs", limit=1)
         self.assertEqual(("tenant-a", "allowed"), (results[0].identity.tenant, results[0].identity.source_id))
 
     def test_e2e003_p4_06_barrier_blocks_until_watermark(self):
         """Search cannot pass required projection watermark early."""
         with self.assertRaises(TimeoutError):
             PostgresFTSQueryService(self.connection, barrier=ProjectionBarrier(accepted=4, applied=3)).search(
-                Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", min_sequence=4)
+                Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", source="docs", min_sequence=4)
 
     def test_e2e004_p4_07_update_delete_revision_guard(self):
         """New update wins; stale replay cannot resurrect tombstoned document."""
@@ -167,8 +167,11 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         identity = envelope.semantic_key
         self.apply(envelope)
         self.authority(identity, 1)
+        with self.connection.transaction():
+            self.connection.execute("UPDATE ingestion_authority SET raw_object_uri=%s,content_hash=%s WHERE tenant=%s AND connector=%s AND object_id=%s",
+                                    ("s3://raw/tenant-a/doc-1", content_hash, "tenant-a", "docs", "doc-1"))
         principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
-        result = PostgresFTSQueryService(self.connection).search(principal, "citation")[0]
+        result = PostgresFTSQueryService(self.connection).search(principal, "citation", source="docs")[0]
         self.assertTrue(verify_citation(_AuthorityConnection(self.connection), principal, result))
         self.assertFalse(verify_citation(self.connection, Principal("alice", "tenant-b", source_scopes=frozenset({"docs"})), result))
         self.assertFalse(verify_citation(self.connection, principal, QueryResultDTO(
@@ -262,11 +265,11 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         barrier = ProjectionBarrier(accepted=sequence, applied=sequence - 1)
         with self.assertRaises(TimeoutError):
             PostgresFTSQueryService(self.connection, barrier=barrier).search(
-                Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", min_sequence=sequence)
+                Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", source="docs", min_sequence=sequence)
         barrier.applied = sequence
         self.assertEqual(BarrierState.FRESH, barrier.observe(sequence).state)
         self.assertEqual((), PostgresFTSQueryService(self.connection, barrier=barrier).search(
-            Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", min_sequence=sequence))
+            Principal("alice", "tenant-a", source_scopes=frozenset({"docs"})), "alpha", source="docs", min_sequence=sequence))
         with self.connection.transaction():
             PostgresProjectionWorker(self.connection).apply(self.envelope(1, text="alpha searchable"))
         self.assertEqual((2, True), self.connection.execute(
@@ -302,6 +305,45 @@ class P4PostgresIntegrationTests(unittest.TestCase):
         """Principal without source scope cannot issue scoped search."""
         with self.assertRaises(AuthorizationError):
             PostgresFTSQueryService(self.connection).search(Principal("alice", "tenant-a"), "alpha", source="docs")
+
+    def test_namespace_alias_collision_fails_closed(self):
+        self.apply(self.envelope())
+        colliding = self.envelope()
+        colliding = ReplayEnvelope(colliding.event_id + "-other", colliding.idempotency_key + "-other",
+                                   colliding.semantic_key, 2, colliding.operation, colliding.payload,
+                                   colliding.raw_reference,
+                                   {"provider": "other", "connector": "docs", "source_instance": "local"},
+                                   colliding.permissions, colliding.correlation_id, colliding.observed_at)
+        with self.assertRaises(ValueError):
+            with self.connection.transaction():
+                PostgresProjectionWorker(self.connection).apply(colliding)
+
+    def test_projection_checkpoint_rejects_skipped_sequence(self):
+        self.apply(self.envelope(), sequence=1)
+        with self.assertRaises(ValueError):
+            with self.connection.transaction():
+                PostgresProjectionWorker(self.connection).apply_at_sequence(12, self.envelope(2))
+
+    def test_citation_requires_nonempty_reference(self):
+        self.apply(self.envelope())
+        principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
+        result = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs")[0]
+        self.assertFalse(verify_citation(self.connection, principal, QueryResultDTO(
+            result.identity, result.revision, result.score, result.title, result.snippet,
+            result.provenance, {"raw_reference": {"content_hash": ""}})))
+
+    def test_expired_lease_reaping_is_tenant_workload_scoped(self):
+        with self.connection.transaction():
+            self.connection.execute("""INSERT INTO ingestion_outbox
+              (idempotency_key,object_key,tenant,workload,payload,status,lease_owner,lease_expires_at)
+              VALUES (%s,%s,%s,%s,%s,'claimed','old',now()-interval '1 second'),
+                     (%s,%s,%s,%s,%s,'claimed','old',now()-interval '1 second')""",
+              ("lease-a", "a", "tenant-a", "docs", Jsonb({}),
+               "lease-b", "b", "tenant-b", "docs", Jsonb({})))
+        self.connection.commit()
+        self.repository.claim_outbox("new", tenant="tenant-a", workload="docs")
+        self.assertEqual(("claimed", "old"), self.connection.execute(
+            "SELECT status,lease_owner FROM ingestion_outbox WHERE idempotency_key='lease-b'").fetchone())
 
 
 if __name__ == "__main__":

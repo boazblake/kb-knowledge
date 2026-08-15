@@ -146,9 +146,9 @@ class ProjectionBarrier:
         else: state = BarrierState.FRESH
         return ProjectionWatermark(self.accepted, self.applied, state)
 
-    def require(self, min_sequence: int, *, timeout: bool = False) -> ProjectionWatermark:
+    def require(self, min_sequence: int, *, timeout: bool = False, eventual: bool = False) -> ProjectionWatermark:
         result = self.observe(min_sequence, timeout=timeout)
-        if result.state in {BarrierState.PENDING, BarrierState.BLOCKED, BarrierState.TIMEOUT}:
+        if result.state in {BarrierState.PENDING, BarrierState.STALE, BarrierState.BLOCKED, BarrierState.TIMEOUT} and not (eventual and result.state == BarrierState.STALE):
             raise TimeoutError(f"projection barrier {result.state.value}")
         return result
 
@@ -162,6 +162,18 @@ class PostgresProjectionWorker:
     def apply(self, envelope: ReplayEnvelope) -> None:
         if self.failure: self.failure(envelope)
         key = envelope.semantic_key
+        provenance = envelope.provenance
+        required = ("provider", "connector", "source_instance")
+        if any(not isinstance(provenance.get(field), str) or not provenance[field] for field in required) or provenance["connector"] != key.source:
+            raise IdentityCollision("explicit source namespace mapping required")
+        alias = (key.tenant, key.source, key.source_id, provenance["provider"], provenance["connector"], provenance["source_instance"])
+        self.connection.execute("INSERT INTO p4_identity_aliases (tenant,source,source_id,provider,connector,source_instance) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", alias)
+        existing = self.connection.execute("SELECT provider,connector,source_instance FROM p4_identity_aliases WHERE tenant=%s AND source=%s AND source_id=%s", key.key).fetchone()
+        if tuple(existing or ()) != alias[3:]:
+            raise IdentityCollision(f"source namespace collision: {key.key}")
+        tombstone = self.connection.execute("SELECT tombstoned FROM p4_document WHERE tenant=%s AND source=%s AND source_id=%s", key.key).fetchone()
+        if tombstone and tombstone[0] and envelope.operation != EnvelopeOperation.DELETE:
+            return
         payload = envelope.payload or {}
         acl = envelope.permissions
         self.connection.execute(f"""INSERT INTO p4_{self.projection}
@@ -183,9 +195,13 @@ class PostgresProjectionWorker:
     def apply_at_sequence(self, sequence: int, envelope: ReplayEnvelope) -> None:
         """Apply projection and watermark in one caller-owned transaction."""
         self.apply(envelope)
+        current = self.connection.execute("SELECT sequence FROM p4_projection_checkpoints WHERE projection=%s FOR UPDATE", (self.projection,)).fetchone()
+        expected = int(current[0]) + 1 if current else 1
+        if sequence != expected:
+            raise ValueError(f"projection checkpoint requires sequence {expected}, got {sequence}")
         self.connection.execute("""INSERT INTO p4_projection_checkpoints(projection,sequence,state)
           VALUES (%s,%s,'fresh') ON CONFLICT (projection) DO UPDATE
-          SET sequence=GREATEST(p4_projection_checkpoints.sequence, EXCLUDED.sequence),
+          SET sequence=EXCLUDED.sequence,
               state='fresh', last_error=NULL, updated_at=now()""", (self.projection, sequence))
 
 
@@ -205,11 +221,11 @@ class PostgresFTSQueryService:
         self.connection, self.barrier = connection, barrier or ProjectionBarrier()
 
     def search(self, principal: Principal, text: str, *, limit: int = 20, min_sequence: int = 0,
-               source: str = "", timeout: bool = False) -> tuple[QueryResultDTO, ...]:
+               source: str = "", timeout: bool = False, eventual: bool = False) -> tuple[QueryResultDTO, ...]:
         if not principal.can_read(principal.tenant, source): raise AuthorizationError("tenant/source denied")
         if not 1 <= limit <= 100: raise ValueError("limit must be between 1 and 100")
         if not text.strip(): return ()
-        self.barrier.require(min_sequence, timeout=timeout)
+        self.barrier.require(min_sequence, timeout=timeout, eventual=eventual)
         # ACL and tenant predicates precede rank and LIMIT by design.
         rows = self.connection.execute("""SELECT tenant,source,source_id,revision,ts_rank(search_vector, plainto_tsquery('simple', %s)) AS score,
           title, ts_headline('simple', body, plainto_tsquery('simple', %s)) AS snippet, provenance,raw_reference
@@ -228,10 +244,20 @@ def verify_citation(connection, principal: Principal, result: QueryResultDTO) ->
     if not row or row[0] != result.revision or row[2] or (row[3] is None or principal.subject not in row[3]):
         return False
     reference = result.citation.get("raw_reference", {})
-    if reference.get("content_hash") and row[1] != reference["content_hash"]:
+    if (not isinstance(reference, Mapping) or not reference.get("uri") or
+            not isinstance(reference.get("content_hash"), str) or
+            not reference["content_hash"] or row[1] != reference["content_hash"]):
         return False
-    # Optional authority lookup makes stale projection evidence abstain. Mock
-    # connections may expose only projection tables, so absence is tolerated.
-    if hasattr(connection, "authority_revision"):
-        return connection.authority_revision(result.identity) == result.revision
-    return True
+    # Authority verification is mandatory; projection-only evidence abstains.
+    try:
+        p = result.provenance
+        authority = connection.execute("""SELECT revision,raw_object_uri,content_hash,operation
+          FROM ingestion_authority WHERE provider=%s AND tenant=%s AND connector=%s
+          AND source_instance=%s AND object_id=%s""",
+          (p["provider"], result.identity.tenant, p["connector"], p["source_instance"],
+           result.identity.source_id)).fetchone()
+    except Exception:
+        return False
+    return bool(authority and authority[0] == result.revision and
+                authority[1] == reference["uri"] and authority[2] == reference["content_hash"] and
+                authority[3] != "delete")
