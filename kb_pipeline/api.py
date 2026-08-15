@@ -76,7 +76,7 @@ def _handler(service, tokens, session_token, max_query_chars=512, max_results=10
                 return self._send(200 if status.get("status") == "ready" else 503, status)
             if frontend_root is not None:
                 root = Path(frontend_root).resolve()
-                static_names = {"/", "/index.html", "/app.js", "/styles.css", "/project-views.css", "/blueprint.css",
+                static_names = {"/", "/index.html", "/app.js", "/styles.css", "/project-views.css", "/blueprint.css", "/project-visualization.html", "/project-visualization.js", "/project-visualization.css", "/visualization-status.css", "/visualization-status.js", "/visualization-status.json",
                                 "/pipeline-map.html", "/pipeline-map.js", "/repository-city.html",
                                 "/repository-city.js", "/repository-metrics.json", "/pipeline-blueprint.html", "/pipeline-blueprint.js", "/pipeline-roadmap.html", "/pipeline-roadmap.js"}
                 if path.path in static_names:
