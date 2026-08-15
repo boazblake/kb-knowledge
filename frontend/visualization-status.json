@@ -1,15 +1,18 @@
 {
-  "snapshot": "b80da6c + d955b2c + edd8f23",
+  "snapshot": "e82b1d2",
   "decision": "Production NO-GO",
-  "remediationStage": "GREEN — local evidence",
+  "evidenceLabel": "MOCK / REFERENCE — not live provider or production evidence",
+  "environment": "Mock/local provider environment",
+  "remediationStage": "GREEN — mock/reference evidence",
   "provider": { "endpointsConfigured": false, "credentialsConfigured": false, "liveCalls": 0, "externalConnector": false, "absent": ["KMS", "S3", "OIDC", "Temporal", "OTel"] },
-  "suite": { "run": 5, "pass": 5, "skipped": 0 },
-  "postgresValidation": { "latestRun": 21, "latestPass": 21, "customChecksRun": 5, "customChecksPass": 5, "migrations": "001-005 idempotent" },
+  "suite": { "name": "Mock E2E", "run": 14, "pass": 14, "skipped": 0 },
+  "postgresValidation": { "version": "16.9", "lifecycle": "fresh disposable", "latestRun": 14, "latestPass": 14, "migrations": "001-005 idempotent" },
+  "scenarios": ["OIDC/JWKS", "Synthetic connector", "KMS", "S3", "PostgreSQL authority/outbox/checkpoint", "Temporal boundary", "Telemetry sink", "Wrong tenant", "Key failure", "Object failure", "Duplicate", "Retry", "Rollback/orphan", "Purge/no-resurrection"],
   "remediation": ["Batch atomicity validated", "Cursor comparator validated", "Staged raw / orphan lifecycle validated", "Outbox ownership / retry validated", "Canonical purge namespace validated"],
   "statuses": ["DONE", "PARTIAL", "BLOCKED", "DEFERRED"],
   "horizons": ["Prototype/reference", "Production-shaped non-prod", "Production qualification/release"],
-  "evidence": ["Commits: b80da6c, d955b2c, edd8f23", "PostgreSQL targeted authority/purge/recovery matrix: 21/21 passed", "Custom remediation checks: 5/5 passed", "Migrations 001-005 idempotent", "Batch atomicity, cursor comparator, staged raw/orphan lifecycle, outbox ownership/retry, canonical purge namespace validated"],
+  "evidence": ["Commit: e82b1d2", "MOCK E2E: 14/14 passed across OIDC/JWKS, synthetic connector, KMS, S3, PostgreSQL authority/outbox/checkpoint, Temporal boundary, telemetry sink, tenant and failure paths", "Fresh disposable PostgreSQL 16.9; migrations 001-005 idempotent", "Duplicate, retry, rollback/orphan, purge/no-resurrection behavior passed in mock path"],
   "missingNonProd": ["Configured non-prod OIDC/KMS/S3/Temporal/OTel endpoints", "External connector environment"],
   "missingProduction": ["Live KMS/S3/OIDC/Temporal/OTel", "External connector", "Production load/SLO", "RPO/RTO", "Recovery rehearsal", "SEC/OPS approval"],
-  "next": "External provider environment integration (OIDC/KMS/S3/Temporal/OTel) using configured non-prod endpoints only."
+  "next": "Qualify one approved connector against mock path, then obtain real non-production provider configuration."
 }

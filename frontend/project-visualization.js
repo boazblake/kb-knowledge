@@ -24,7 +24,7 @@
     ['Prototype/reference','Local fixtures and one-page hub','DONE','Browser-rendered reference evidence; not production.'],
     ['Prototype/reference','Backend remediation set','DONE','Atomicity, cursor semantics, staged raw/orphans, outbox ownership/retry, and canonical purge namespace locally validated.'],
     ['Production-shaped non-prod','PostgreSQL authority validation','DONE','21/21 targeted matrix; 5/5 custom checks; migrations 001-005 idempotent.'],
-    ['Production-shaped non-prod','External provider environment integration','BLOCKED','Exactly one next item: configured non-prod OIDC/KMS/S3/Temporal/OTel endpoints only.'],
+    ['Production-shaped non-prod','Approved connector against mock path','PARTIAL','Exactly one next item: qualify one approved connector against mock path, then obtain real non-production provider configuration.'],
     ['Production qualification/release','SEC/OPS and production release','BLOCKED','SEC/OPS NO-GO; deployment, RPO/RTO, SLO, and approval evidence absent.']
   ];
   const city = [
@@ -35,10 +35,11 @@
     ['docs','Markdown','knowledge',[['docs/pilot-readiness.md','Pilot readiness','reviewed','BLOCKED','SEC/OPS NO-GO'],['docs/runbook.md','Runbook','reviewed','PARTIAL','production rehearsal absent']]]
   ];
   function $(selector) { return document.querySelector(selector); }
-  $('#suite-count').textContent = `${S.suite.run}/${S.suite.pass}/${S.suite.skipped}`;
+  $('#suite-count').textContent = `${S.suite.pass}/${S.suite.run}`;
   $('#postgres-count').textContent = `${S.postgresValidation.latestPass}/${S.postgresValidation.latestRun}`;
   $('#next-step').textContent = S.next;
   $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
+  $('#scenario-list').innerHTML = S.scenarios.map(item => `<li>${esc(item)} <span class="status-chip done">PASS</span></li>`).join('');
   const svgNS = 'http://www.w3.org/2000/svg';
   const points = (x,y) => Array.from({length:6},(_,i) => { const a=Math.PI/3*i-Math.PI/6; return `${x+66*Math.cos(a)},${y+47*Math.sin(a)}`; }).join(' ');
   const positions = [[75,180],[195,180],[315,180],[435,180],[555,180],[675,180],[795,180],[915,180],[1025,180]];
