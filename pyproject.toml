@@ -11,6 +11,9 @@ production = [
     "boto3>=1.35,<2",
     "PyJWT[crypto]>=2.9,<3",
     "opentelemetry-api>=1.27,<2",
+    "opentelemetry-sdk>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+    "temporalio>=1.8,<2",
 ]
 test = [
     "testcontainers[postgres]>=4.9,<5",

@@ -177,20 +177,12 @@ def build_raw_artifact_store(bucket: str, key_id: str, *, prefix: str = "raw/",
                             kms=CloudKMSProvider(key_id, client=kms_client))
 
 
-class OpenTelemetry:
-    test_only = False
-    def __init__(self, service_name: str, endpoint: str, *, tracer_provider=None, meter_provider=None):
-        if not service_name or not endpoint: raise ValueError("telemetry service_name and endpoint required")
-        try:
-            otel_trace = importlib.import_module("opentelemetry.trace")
-            otel_metrics = importlib.import_module("opentelemetry.metrics")
-        except ImportError as exc: raise AdapterUnavailable("OpenTelemetry packages required") from exc
-        self.tracer = otel_trace.get_tracer(service_name, tracer_provider=tracer_provider)
-        self.meter = otel_metrics.get_meter(service_name, meter_provider=meter_provider)
-    def span(self, name, **attributes):
-        return self.tracer.start_as_current_span(name, attributes=attributes)
-    def counter(self, name, value=1, **attributes):
-        self.meter.create_counter(name).add(value, attributes)
+from .telemetry import OpenTelemetry as _ConfiguredOpenTelemetry
+
+
+class OpenTelemetry(_ConfiguredOpenTelemetry):
+    """Production adapter; SDK/exporter setup is never replaced by a no-op."""
+    pass
 
 
 class TemporalWorkflowBoundary:
