@@ -1,0 +1,6 @@
+.status-chip.done,.road-node.done{color:#176b52;background:#e1f5ec}
+.status-chip.partial,.road-node.partial{color:#7e5b00;background:#fff4ce}
+.status-chip.blocked,.road-node.blocked{color:#9b2c2c;background:#ffebeb}
+.status-chip.deferred,.road-node.deferred{color:#205493;background:#e6f0ff}
+.node.done{fill:#b9ebd0}.node.partial{fill:#ffe29a}.node.blocked{fill:#ffc1c1}.node.deferred{fill:#b9d7ff}
+.blueprint-legend .swatch.done{background:#b9ebd0}.blueprint-legend .swatch.partial{background:#ffe29a}.blueprint-legend .swatch.blocked{background:#ffc1c1}.blueprint-legend .swatch.deferred{background:#b9d7ff}
