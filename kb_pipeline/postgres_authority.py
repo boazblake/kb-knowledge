@@ -158,7 +158,7 @@ class PostgresAuthorityRepository:
                 ORDER BY sequence FOR UPDATE SKIP LOCKED LIMIT %s
             ) UPDATE ingestion_outbox o SET status='claimed', lease_owner=%s, lease_expires_at=now() + (%s * interval '1 second'), attempts=o.attempts+1
               FROM picked WHERE o.sequence=picked.sequence
-              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, worker, lease_seconds, limit)).fetchall()
+              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, limit, worker, lease_seconds)).fetchall()
         return tuple({"sequence": r[0], "idempotency_key": r[1], "object_key": r[2],
                       "payload": r[3], "attempts": r[4], "worker": worker, "tenant": tenant, "workload": workload} for r in rows)
 

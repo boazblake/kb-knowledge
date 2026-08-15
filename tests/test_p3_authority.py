@@ -82,6 +82,52 @@ class P3AuthorityUnitTests(unittest.TestCase):
         finally:
             repo.close()
 
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_claim_outbox_scope_limit_worker_and_expired_lease_reclaim(self):
+        repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
+        suffix = uuid4().hex
+        tenant = f"claim-tenant-{suffix}"
+        other_tenant = f"claim-other-{suffix}"
+        workload = f"claim-workload-{suffix}"
+        try:
+            repo.open()
+            with repo.transaction() as conn:
+                conn.execute("""INSERT INTO ingestion_outbox
+                    (idempotency_key, object_key, tenant, workload, payload)
+                    VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s),
+                           (%s, %s, %s, %s, %s)""",
+                             (f"{suffix}-1", f"object-{suffix}-1", tenant, workload, "{}",
+                              f"{suffix}-2", f"object-{suffix}-2", tenant, workload, "{}",
+                              f"{suffix}-3", f"object-{suffix}-3", other_tenant, workload, "{}"))
+
+            claimed = repo.claim_outbox("worker-test", tenant=tenant, workload=workload, limit=1)
+            self.assertEqual(1, len(claimed))
+            self.assertEqual("worker-test", claimed[0]["worker"])
+            self.assertEqual(tenant, claimed[0]["tenant"])
+            self.assertEqual(workload, claimed[0]["workload"])
+
+            second = repo.claim_outbox("worker-test", tenant=tenant, workload=workload, limit=10)
+            self.assertEqual(1, len(second))
+            self.assertEqual((), repo.claim_outbox("worker-test", tenant=tenant,
+                                                   workload=workload, limit=10))
+            other_claimed = repo.claim_outbox("worker-other", tenant=other_tenant,
+                                              workload=workload, limit=10)
+            self.assertEqual(1, len(other_claimed))
+            self.assertEqual(other_tenant, other_claimed[0]["tenant"])
+            self.assertEqual((), repo.claim_outbox("worker-other", tenant=other_tenant,
+                                                   workload="wrong-workload", limit=10))
+            with repo.transaction() as conn:
+                conn.execute("""UPDATE ingestion_outbox
+                    SET lease_expires_at = now() - interval '1 second'
+                    WHERE sequence=%s""", (claimed[0]["sequence"],))
+
+            reclaimed = repo.claim_outbox("worker-recovery", tenant=tenant, workload=workload, limit=10)
+            self.assertEqual(1, len(reclaimed))
+            self.assertEqual("worker-recovery", reclaimed[0]["worker"])
+            self.assertEqual(claimed[0]["sequence"], reclaimed[0]["sequence"])
+        finally:
+            repo.close()
+
 
 if __name__ == "__main__":
     unittest.main()
