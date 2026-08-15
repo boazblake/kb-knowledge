@@ -2,6 +2,9 @@
 
 `production_qualification=false`.
 
+Evidence run: `phase4-20260815T214315Z-38130` at clean checkpoint
+`e3710e33139d4f13545b158a97d1ea1292af700a`.
+
 ## Scope and limitations
 
 E2E-001..E2E-010 and P4-01..P4-11 use PostgreSQL, psycopg, PostgreSQL FTS,
@@ -17,10 +20,12 @@ Given/When/Then source specs. Frontend remains observational and read-only.
 
 | Field | Current fact |
 |---|---|
-| Commit | `7e0caa93e803a65c6c31f17d7aa8831ab33cbba2` |
+| Commit | `e3710e33139d4f13545b158a97d1ea1292af700a` |
+| Evidence run | `phase4-20260815T214315Z-38130` |
 | Runtime | Nix Python 3.11.11; Node v22.16.0; disposable PostgreSQL 16; HeadlessChrome 149 |
 | Schema | `migrations/006_phase4_projection.sql` |
-| Nix full suite | 200 passed / 26 skipped |
+| Migrations | 1, 2, 3, 4, 5, 6 applied; second run no-op; pass |
+| Nix full suite | 200 passed / 0 skipped |
 | Disposable PostgreSQL full suite | 200 passed / 0 skipped |
 | Targeted Phase 4 | 14 passed / 0 failed |
 | Labeled scenarios | 21/21 pass: E2E-001..E2E-010 and P4-01..P4-11 |
@@ -32,8 +37,12 @@ Given/When/Then source specs. Frontend remains observational and read-only.
 
 Evidence ledger: `phase4-qa-bdd-ledger-2026-08-15.json`.
 
-Nix suite skips include seven additional tests skipped because PyJWT/OIDC
-imports were unavailable.
+Temporary evidence path: `/tmp/phase4-20260815T214315Z-38130`.
+
+Temporary artifact checksums and executed commands are recorded in the checked-in
+ledger. Screenshot capture deviated: no screenshot artifact was available;
+browser snapshot, accessibility, and network evidence were captured instead.
+No production deployment or production scans were run.
 
 ## Reproducible checks
 

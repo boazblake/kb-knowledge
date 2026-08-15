@@ -1,7 +1,9 @@
 {
   "schema": "kb-pipeline.phase4-qa-bdd-ledger.v1",
   "captured_at": "2026-08-15",
-  "commit": "7e0caa93e803a65c6c31f17d7aa8831ab33cbba2",
+  "commit": "e3710e33139d4f13545b158a97d1ea1292af700a",
+  "evidence_run": "phase4-20260815T214315Z-38130",
+  "git_status": "clean",
   "runtime": {
     "nix_python": "Python 3.11.11",
     "node": "v22.16.0",
@@ -13,6 +15,40 @@
     "schema_claim": "Phase 4 dev/mock projection, FTS, checkpoint, and identity-alias schema"
   },
   "production_qualification": false,
+  "migration_evidence": {
+    "pass_1": [1, 2, 3, 4, 5, 6],
+    "pass_2": [],
+    "status": "pass"
+  },
+  "temporary_evidence": {
+    "path": "/tmp/phase4-20260815T214315Z-38130",
+    "artifacts": [
+      {"path":"protocol.log","sha256":"0ccc9b7a0dd89d2c511a5de7646a0ea91ae5e37bb1eccee6503b954f52b3bc43"},
+      {"path":"full-unittest.log","sha256":"171e22c54b667bcee3e21dbc0563eadc4f9496c1a9137e58a10361dfe7145f73"},
+      {"path":"targeted-p4.log","sha256":"a4027bea8603da1dd412deca2bae1d9aca6a2a57793489bc43b83d37363d5d2a"},
+      {"path":"frontend-server.log","sha256":"49a7a6b6a3efff756e58bd619877df95ddc6f4461bd68d9bf7b5a93919e99cc3"},
+      {"path":"frontend-response.html","sha256":"84a81fbfd6c90b2c315bfacff1e6506c6d1676d7e71bc607d5904d82cf33c41d"},
+      {"path":"browser-snapshot.json","sha256":"b43de90484f5eb16b9e97afd2db0f39486ac3b9d62fa6cfac809ef0413a9563c"},
+      {"path":"browser-a11y-check.json","sha256":"727b2d70fb43a22b668cf5e3554aebdf99b4da205c287b6b871b184458223ad2"},
+      {"path":"browser-network.log","sha256":"2a12876aa8714d9048b4ed14f2cd3f5b242184c3add234b202e50c9c8d2bcf21"}
+    ],
+    "commands": [
+      "nix develop --command bash -s (Phase 4 protocol)",
+      "initdb --no-locale --encoding=UTF8 -D <temporary evidence>/pgdata",
+      "pg_ctl <temporary evidence>/pgdata -o <temporary socket and port> start",
+      "python - <<PY MigrationRunner().run(connection) [pass 1]",
+      "python - <<PY MigrationRunner().run(connection) [pass 2]",
+      "P3_POSTGRES_DSN=<redacted> python -m unittest discover -s tests -p 'test*.py' -v",
+      "P3_POSTGRES_DSN=<redacted> python -m unittest tests.test_p4_core tests.test_p4_postgres_integration -v",
+      "python -m compileall -q kb_pipeline tests",
+      "node --check frontend/*.js",
+      "agent-browser open http://127.0.0.1:8769/project-visualization.html",
+      "agent-browser snapshot -i --json",
+      "agent-browser network requests"
+    ]
+  },
+  "capture_deviation": "Screenshot capture was not available in temporary evidence; browser snapshot, accessibility, and network evidence were captured instead.",
+  "deployment_and_scans": "No production deployment or production scans run.",
   "evidence_scope": "Executed QA covers Nix full suite, disposable PostgreSQL full suite, targeted Phase 4 checks, 21 labeled E2E/P4 scenarios, browser rendering, and accessibility checks. Evidence is repository-local and non-production.",
   "scope_note": "Product brief E2E-001..E2E-010 and planner P4-01..P4-11 were not present as labeled source files. IDs below preserve requested scenario labels and map behaviors to available repository evidence; missing labeled specs remain a traceability gap.",
   "runs": [
@@ -39,11 +75,13 @@
     {"id":"P4-11","expected":"Frontend observation and accessibility checks pass; visualization remains observational.","observed":"Browser and accessibility checks passed; visualization remains read-only. Favicon 404 remains P3.","status":"pass","evidence":"frontend/project-visualization.html; frontend/project-visualization.js; tests/test_phase4_qa.py; agent-browser"}
   ],
   "summary": {
-    "nix_full_suite": "200 passed, 26 skipped",
-    "nix_full_suite_skip_note": "Seven additional skips due to unavailable PyJWT/OIDC imports.",
+    "nix_full_suite": "200 passed, 0 skipped",
     "disposable_postgres_full_suite": "200 passed, 0 skipped",
     "targeted_p4": "14 passed, 0 failed",
     "labeled_scenarios": "21/21 pass",
+    "frontend_syntax": "pass",
+    "browser_rendering": "pass",
+    "accessibility": "pass",
     "browser_accessibility": "pass",
     "coverage": "not measured"
   },
