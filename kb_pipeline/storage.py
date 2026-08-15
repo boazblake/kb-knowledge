@@ -39,6 +39,8 @@ class SQLiteStore:
         CREATE TABLE IF NOT EXISTS tombstones(document_id TEXT PRIMARY KEY, deleted_at TEXT);
         CREATE TABLE IF NOT EXISTS revocations(source_id TEXT PRIMARY KEY, suppressed_until TEXT);
         CREATE TABLE IF NOT EXISTS purge_status(purge_id TEXT PRIMARY KEY, scope TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL, candidates INTEGER NOT NULL DEFAULT 0, purged INTEGER NOT NULL DEFAULT 0, reason TEXT, started_at TEXT NOT NULL, completed_at TEXT);
+        CREATE TABLE IF NOT EXISTS purge_intents(purge_id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE NOT NULL, target TEXT NOT NULL, actor TEXT NOT NULL, correlation_id TEXT NOT NULL, data_class TEXT NOT NULL, retain_until TEXT, legal_hold INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS purge_receipts(purge_id TEXT NOT NULL, store TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', correlation_id TEXT NOT NULL, recorded_at TEXT NOT NULL, PRIMARY KEY(purge_id,store));
         CREATE TABLE IF NOT EXISTS image_extractions(source_id TEXT, version TEXT, content_hash TEXT NOT NULL, model TEXT, schema_version TEXT NOT NULL, prompt_version TEXT NOT NULL, status TEXT NOT NULL, observation TEXT, error TEXT, created_at TEXT NOT NULL, PRIMARY KEY(source_id,version));
         CREATE TABLE IF NOT EXISTS embeddings(document_id TEXT, source_id TEXT NOT NULL, version TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL, input_hash TEXT NOT NULL, vector BLOB NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(document_id,model));
         CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(document_id UNINDEXED, title, text);
@@ -162,6 +164,35 @@ class SQLiteStore:
         query = "SELECT * FROM purge_status WHERE purge_id=?" if purge_id else "SELECT * FROM purge_status ORDER BY started_at DESC"
         rows = self.db.execute(query, (purge_id,) if purge_id else ()).fetchall()
         return [dict(row) for row in rows]
+    def create_purge_intent(self, intent):
+        from .purge import RetentionDecision
+        at = datetime.now(timezone.utc).isoformat()
+        with self.writer_lock, self.db:
+            row = self.db.execute("SELECT * FROM purge_intents WHERE idempotency_key=?", (intent.idempotency_key,)).fetchone()
+            if row:
+                if row['target'] != intent.target: raise ValueError("purge idempotency conflict")
+                return intent.__class__(row['purge_id'], row['idempotency_key'], row['target'], row['actor'], row['correlation_id'],
+                                        RetentionDecision(row['data_class'], _dt(row['retain_until']), bool(row['legal_hold']), "recovered"))
+            self.db.execute("INSERT INTO purge_intents VALUES (?,?,?,?,?,?,?,?,?,?)", (intent.purge_id,intent.idempotency_key,intent.target,intent.actor,intent.correlation_id,intent.decision.data_class,intent.decision.retain_until.isoformat() if intent.decision.retain_until else None,int(intent.decision.legal_hold),'pending',at))
+        return intent
+    def tombstone_for_purge(self, purge_id, target, actor, correlation_id):
+        with self.writer_lock, self.db:
+            rows = self.db.execute("SELECT document_id FROM documents WHERE document_id=? AND tombstoned=0", (target,)).fetchall()
+            ids = tuple(row[0] for row in rows)
+            for document_id in ids: self.tombstone(document_id)
+            self.db.execute("UPDATE purge_intents SET status='running' WHERE purge_id=?", (purge_id,))
+        return ids
+    def save_purge_receipt(self, receipt):
+        with self.writer_lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO purge_receipts VALUES (?,?,?,?,?)", (receipt.purge_id,receipt.store,receipt.status.value,receipt.detail,receipt.correlation_id,datetime.now(timezone.utc).isoformat()))
+    def purge_receipts(self, purge_id):
+        from .purge import ReceiptStatus, StoreReceipt
+        with self.writer_lock:
+            return tuple(StoreReceipt(r['purge_id'],r['store'],ReceiptStatus(r['status']),r['detail'],r['correlation_id']) for r in self.db.execute("SELECT * FROM purge_receipts WHERE purge_id=?", (purge_id,)))
+    def audit_purge(self, intent, action):
+        self.append(__import__('kb_pipeline.domain', fromlist=['AuditEvent']).AuditEvent(f"{intent.purge_id}:{action}", action, intent.actor, intent.target))
+    def set_purge_status(self, purge_id, status):
+        with self.writer_lock, self.db: self.db.execute("UPDATE purge_intents SET status=? WHERE purge_id=?", (status.value, purge_id))
     def purge(self,before, *, source_id=None, document_id=None, purge_id=None):
         """Purge tombstoned documents without deleting shared content hashes."""
         clauses = ["tombstoned=1", "deleted_at<?"]; args = [before.isoformat()]
