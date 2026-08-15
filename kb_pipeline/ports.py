@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, Iterable
+from typing import Protocol, Iterable, Mapping, Any
 from .domain import Input, RawRecord, CanonicalDocument, SearchHit, ACL, AuditEvent
 
 
@@ -27,6 +27,19 @@ class SearchIndex(Protocol):
     def search(self, query: str) -> Iterable[SearchHit]: ...
 
 
+class Answerer(Protocol):
+    def answer(self, query: str, evidence: tuple[dict, ...]) -> dict: ...
+
+
+class VisionObserver(Protocol):
+    def observe(self, payload: bytes, filename: str = "image.jpg") -> dict: ...
+
+
+class Embedder(Protocol):
+    model: str
+    def embed(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]: ...
+
+
 class IdentityACL(Protocol):
     def resolve(self, record: RawRecord) -> ACL: ...
 
@@ -34,3 +47,34 @@ class IdentityACL(Protocol):
 class AuditStore(Protocol):
     def append(self, event: AuditEvent) -> None: ...
     def all(self) -> Iterable[AuditEvent]: ...
+
+
+# Production composition ports. Implementations belong in adapters; domain and
+# service code must not import provider SDKs.
+class OIDCValidator(Protocol):
+    def validate(self, token: str) -> Any: ...
+
+
+class SecretsKMS(Protocol):
+    def encrypt(self, plaintext: bytes, *, key_id: str, context: Mapping[str, str] | None = None) -> Any: ...
+    def decrypt(self, envelope: Any, *, context: Mapping[str, str] | None = None) -> bytes: ...
+
+
+class RawObjectStore(Protocol):
+    def put(self, key: str, payload: bytes, *, metadata: Mapping[str, str] | None = None) -> str: ...
+    def get(self, key: str) -> bytes: ...
+    def delete(self, key: str) -> None: ...
+
+
+class AuthorityRepository(Protocol):
+    def transaction(self): ...
+    def checkpoint(self, connector: str, value: str, complete: bool) -> None: ...
+
+
+class WorkflowBoundary(Protocol):
+    def start_ingestion(self, workflow_id: str, payload: Mapping[str, Any]) -> Any: ...
+
+
+class Telemetry(Protocol):
+    def span(self, name: str, **attributes: Any): ...
+    def counter(self, name: str, value: int = 1, **attributes: Any) -> None: ...
