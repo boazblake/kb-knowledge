@@ -74,18 +74,33 @@ def _handler(service, tokens, session_token, max_query_chars=512, max_results=10
             if path.path == "/v1/ready":
                 status = service.readiness() if hasattr(service, "readiness") else {"status": "ready"}
                 return self._send(200 if status.get("status") == "ready" else 503, status)
-            if frontend_root is not None and path.path in {"/", "/index.html", "/app.js", "/styles.css"}:
-                name = "index.html" if path.path in {"/", "/index.html"} else path.path[1:]
-                file = Path(frontend_root) / name
-                if not file.is_file():
-                    return self._error(404, "not_found", "route not found")
-                types = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
-                return self._send(
-                    200,
-                    file.read_bytes(),
-                    types.get(file.suffix, "application/octet-stream"),
-                    [("Set-Cookie", f"kb_session={session_token}; HttpOnly; SameSite=Strict; Path=/")],
-                )
+            if frontend_root is not None:
+                root = Path(frontend_root).resolve()
+                static_names = {"/", "/index.html", "/app.js", "/styles.css", "/project-views.css",
+                                "/pipeline-map.html", "/pipeline-map.js", "/repository-city.html",
+                                "/repository-city.js", "/repository-metrics.json"}
+                if path.path in static_names:
+                    name = "index.html" if path.path in {"/", "/index.html"} else path.path[1:]
+                    file = root / name
+                elif path.path == "/pipelineflow.png":
+                    file = root.parent / "pipelineflow.png"
+                else:
+                    file = None
+                if file is not None:
+                    if not file.is_file():
+                        return self._error(404, "not_found", "route not found")
+                    allowed_root = root.parent if path.path == "/pipelineflow.png" else root
+                    try:
+                        file.resolve().relative_to(allowed_root)
+                    except ValueError:
+                        return self._error(404, "not_found", "route not found")
+                    types = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png"}
+                    return self._send(
+                        200,
+                        file.read_bytes(),
+                        types.get(file.suffix, "application/octet-stream"),
+                        [("Set-Cookie", f"kb_session={session_token}; HttpOnly; SameSite=Strict; Path=/")],
+                    )
             identity = self._identity()
             if identity is None:
                 return self._error(401, "unauthenticated", "authentication required")

@@ -29,6 +29,22 @@
           </div>
           <p id="search-help" class="help">Use words from file names or content.</p>
         </form>
+        <section class="answer-mode" aria-labelledby="answer-heading">
+          <div class="answer-heading">
+            <div><p class="eyebrow">Evidence-first</p><h3 id="answer-heading">Answer from local evidence</h3></div>
+            <span class="answer-scope">Citations required</span>
+          </div>
+          <form id="answer-form">
+            <label for="answer-query">Question</label>
+            <div class="answer-row"><input id="answer-query" name="query" type="search" autocomplete="off" required aria-describedby="answer-help"><button id="answer-button" type="submit">Ask</button></div>
+            <p id="answer-help" class="help">Answers are shown only with local citation labels. This does not grant source access.</p>
+          </form>
+          <div id="answer-status" class="answer-status" role="status">Answer mode is ready.</div>
+          <article id="answer-result" class="answer-result" aria-labelledby="answer-result-heading" hidden>
+            <div class="answer-result-heading"><h4 id="answer-result-heading">Grounded answer</h4><button id="answer-copy" class="answer-copy" type="button" hidden>Copy answer</button></div><p id="answer-evidence-note" class="answer-evidence-note" hidden></p><div id="answer-text"></div>
+            <section class="citation-surface" aria-labelledby="citations-heading"><h5 id="citations-heading">Local citations</h5><ol id="answer-citations" class="answer-citations"></ol></section>
+          </article>
+        </section>
       </section>
 
       <section aria-labelledby="results-heading" class="results-section" aria-live="polite" aria-busy="false">
@@ -50,6 +66,119 @@
         <p class="help">Status reflects API response only. freshness timestamp may be unavailable. This page makes no access or freshness decisions.</p>
       </section>
 
+      <section aria-labelledby="report-heading" class="report-panel" aria-busy="true">
+        <div class="section-heading report-heading">
+          <div>
+            <p class="eyebrow">Operational view</p>
+            <h2 id="report-heading">Pipeline report</h2>
+          </div>
+          <button id="report-button" type="button">Refresh report</button>
+        </div>
+        <section class="report-readiness" aria-labelledby="readiness-heading">
+          <div class="report-subheading">
+            <h3 id="readiness-heading">Pipeline readiness</h3>
+            <span class="readiness-note">Static module view · local/reference scope</span>
+          </div>
+          <p class="readiness-copy">Static roadmap only. It does not reflect live counts, health, or current service state.</p>
+          <ul class="readiness-legend" aria-label="Capability status legend">
+            <li><span class="legend-dot is-complete" aria-hidden="true"></span>Complete — local/reference</li>
+            <li><span class="legend-dot is-partial" aria-hidden="true"></span>Partial or experimental</li>
+            <li><span class="legend-dot is-blocked" aria-hidden="true"></span>Deferred or blocked</li>
+          </ul>
+          <p class="map-instruction">Select a node to keep its dependency detail open.</p>
+          <ol class="pipeline-map" aria-label="Static pipeline capability map">
+            <li class="pipeline-group">
+              <button class="pipeline-parent map-node is-partial" type="button" aria-expanded="false" aria-controls="ingestion-rollup"><span>Ingestion</span><small>Child tiles roll up this capability</small></button>
+              <div id="ingestion-rollup" class="dependency-detail parent-detail"><dl><div><dt>Roll-up</dt><dd>Local files complete; external connectors deferred.</dd></div><div><dt>Remaining</dt><dd>Stable connector contract.</dd></div><div><dt>Unlocks</dt><dd>Broader source ingestion.</dd></div><div><dt>Next action</dt><dd>Qualify connector contracts.</dd></div></dl></div>
+              <ul class="capability-list">
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="local-files-detail"><span>Local files</span><small>Complete</small></button><div id="local-files-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Local plaintext source</dd></div><div><dt>Unlocks</dt><dd>Canonicalization / ACL</dd></div><div><dt>Next action</dt><dd>Keep local fixture scope.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="connectors-detail"><span>External connectors</span><small>Deferred</small></button><div id="connectors-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Depends on</dt><dd>Stable connector contract</dd></div><div><dt>Unlocks</dt><dd>Source ingestion beyond local files</dd></div><div><dt>Next action</dt><dd>Qualify connector contracts.</dd></div></dl></div></li>
+              </ul>
+            </li>
+            <li class="pipeline-group">
+              <button class="pipeline-parent map-node is-partial" type="button" aria-expanded="false" aria-controls="processing-rollup"><span>Processing</span><small>Child tiles roll up this capability</small></button>
+              <div id="processing-rollup" class="dependency-detail parent-detail"><dl><div><dt>Roll-up</dt><dd>Canonicalization / ACL complete; Nango experimental; LLM synthesis deferred.</dd></div><div><dt>Remaining</dt><dd>Stable connector path and citation support.</dd></div><div><dt>Unlocks</dt><dd>Normalized, access-filtered records.</dd></div><div><dt>Next action</dt><dd>Keep experimental scope bounded.</dd></div></dl></div>
+              <ul class="capability-list">
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="canonicalization-detail"><span>Canonicalize / ACL</span><small>Complete</small></button><div id="canonicalization-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Local files</dd></div><div><dt>Unlocks</dt><dd>SQLite state</dd></div><div><dt>Next action</dt><dd>Keep injected ACL policy scoped.</dd></div></dl></div></li>
+                <li class="capability is-partial"><button class="capability-node" type="button" aria-expanded="false" aria-controls="nango-detail"><span>Nango adapter</span><small>Experimental</small></button><div id="nango-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Experimental</dd></div><div><dt>Depends on</dt><dd>Connector contract</dd></div><div><dt>Unlocks</dt><dd>Experimental source sync</dd></div><div><dt>Next action</dt><dd>Do not treat as production connector.</dd></div></dl></div></li>
+                <li class="capability llm-fractal is-partial"><button class="capability-node" type="button" aria-expanded="false" aria-controls="llm-detail"><span>LLM synthesis</span><small>Partial / deferred</small></button><div id="llm-detail" class="dependency-detail"><dl><div><dt>Roll-up</dt><dd>Authenticated retrieval is complete locally. Provenance metadata is partial; remaining answer capabilities are deferred.</dd></div><div><dt>Remaining</dt><dd>Citation-ready contract, answer API, provider boundary, and groundedness evaluation.</dd></div><div><dt>Unlocks</dt><dd>Grounded answer synthesis.</dd></div><div><dt>Next action</dt><dd>Build citation-ready answer contract before model integration.</dd></div></dl></div><p class="resolved-chain">Child dependencies</p><ul class="dependency-children">
+                  <li class="dependency-child is-complete"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-retrieval-detail"><span>Authenticated retrieval</span><small>Complete local</small></button><div id="llm-retrieval-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Role</dt><dd>Supplies access-filtered retrieval.</dd></div><div><dt>Unlocks</dt><dd>Answer evidence input.</dd></div><div><dt>Next action</dt><dd>Keep authorization authoritative.</dd></div></dl></div></li>
+                  <li class="dependency-child is-partial"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-citations-detail"><span>Provenance / citations</span><small>Partial</small></button><div id="llm-citations-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Partial — UI metadata exists; answer citation contract is missing.</dd></div><div><dt>Role</dt><dd>Connects answers to source evidence.</dd></div><div><dt>Unlocks</dt><dd>Citation-ready answer contract.</dd></div><div><dt>Next action</dt><dd>Define answer citation contract.</dd></div></dl></div></li>
+                  <li class="dependency-child is-blocked"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-api-detail"><span>Answer API contract</span><small>Deferred</small></button><div id="llm-api-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Role</dt><dd>Defines answer request and response boundary.</dd></div><div><dt>Unlocks</dt><dd>Answer delivery.</dd></div><div><dt>Next action</dt><dd>Build citation-ready contract first.</dd></div></dl></div></li>
+                  <li class="dependency-child is-blocked"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-provider-detail"><span>Model / provider selection</span><small>Deferred</small></button><div id="llm-provider-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Role</dt><dd>Selects model and provider.</dd></div><div><dt>Unlocks</dt><dd>Model integration.</dd></div><div><dt>Next action</dt><dd>Wait for answer contract.</dd></div></dl></div></li>
+                  <li class="dependency-child is-blocked"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-boundary-detail"><span>Prompt-injection / data boundary</span><small>Deferred</small></button><div id="llm-boundary-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Role</dt><dd>Protects model inputs and data boundary.</dd></div><div><dt>Unlocks</dt><dd>Safer answer handling.</dd></div><div><dt>Next action</dt><dd>Specify boundary controls.</dd></div></dl></div></li>
+                  <li class="dependency-child is-blocked"><button class="capability-node child-hex" type="button" aria-expanded="false" aria-controls="llm-evaluation-detail"><span>Groundedness evaluation</span><small>Deferred</small></button><div id="llm-evaluation-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Role</dt><dd>Evaluates answer support and quality.</dd></div><div><dt>Unlocks</dt><dd>Measured answer quality.</dd></div><div><dt>Next action</dt><dd>Define evaluation evidence.</dd></div></dl></div></li>
+                </ul></li>
+              </ul>
+            </li>
+            <li class="pipeline-group">
+              <button class="pipeline-parent map-node is-partial" type="button" aria-expanded="false" aria-controls="storage-rollup"><span>Storage / reliability</span><small>Child tiles roll up this capability</small></button>
+              <div id="storage-rollup" class="dependency-detail parent-detail"><dl><div><dt>Roll-up</dt><dd>SQLite, ledger / outbox, and synthetic-local recovery complete; production DR blocked.</dd></div><div><dt>Remaining</dt><dd>Production recovery targets and qualification.</dd></div><div><dt>Unlocks</dt><dd>Local durability evidence.</dd></div><div><dt>Next action</dt><dd>Set and measure production RPO / RTO.</dd></div></dl></div>
+              <ul class="capability-list">
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="sqlite-detail"><span>SQLite</span><small>Complete</small></button><div id="sqlite-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Canonicalization / ACL</dd></div><div><dt>Unlocks</dt><dd>Ledger / outbox</dd></div><div><dt>Next action</dt><dd>Maintain local durability checks.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="ledger-detail"><span>Ledger / outbox</span><small>Complete</small></button><div id="ledger-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>SQLite</dd></div><div><dt>Unlocks</dt><dd>Projections / FTS</dd></div><div><dt>Next action</dt><dd>Maintain checkpoint flow.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="recovery-detail"><span>Recovery rehearsal</span><small>Synthetic-local</small></button><div id="recovery-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — synthetic-local</dd></div><div><dt>Depends on</dt><dd>SQLite and ledger / outbox</dd></div><div><dt>Unlocks</dt><dd>Local recovery evidence</dd></div><div><dt>Next action</dt><dd>Define production RPO / RTO.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="dr-detail"><span>Production DR</span><small>Blocked</small></button><div id="dr-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Blocked</dd></div><div><dt>Depends on</dt><dd>Production recovery targets</dd></div><div><dt>Unlocks</dt><dd>Qualified disaster recovery</dd></div><div><dt>Next action</dt><dd>Set and measure RPO / RTO.</dd></div></dl></div></li>
+              </ul>
+            </li>
+            <li class="pipeline-group">
+              <button class="pipeline-parent map-node is-complete" type="button" aria-expanded="false" aria-controls="retrieval-rollup"><span>Search / report</span><small>Child tiles roll up: local chain complete</small></button>
+              <div id="retrieval-rollup" class="dependency-detail parent-detail"><dl><div><dt>Roll-up</dt><dd>Local files, canonicalization / ACL, SQLite, ledger / outbox, and FTS are complete locally.</dd></div><div><dt>Remaining</dt><dd>No local dependency remains.</dd></div><div><dt>Unlocks</dt><dd>Authenticated search and report.</dd></div><div><dt>Next action</dt><dd>Maintain local/reference scope.</dd></div></dl></div>
+              <p class="resolved-chain">Child dependency chain</p>
+              <ul class="capability-list">
+                <li class="capability is-complete"><button class="capability-node chain-node" type="button" aria-expanded="false" aria-controls="search-files-detail"><span>Local files</span><small>Complete</small></button><div id="search-files-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Local plaintext source</dd></div><div><dt>Unlocks</dt><dd>Canonicalization / ACL</dd></div><div><dt>Next action</dt><dd>Maintain fixture scope.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node chain-node" type="button" aria-expanded="false" aria-controls="search-acl-detail"><span>Canonicalize / ACL</span><small>Complete</small></button><div id="search-acl-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Local files</dd></div><div><dt>Unlocks</dt><dd>SQLite</dd></div><div><dt>Next action</dt><dd>Maintain access scope.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node chain-node" type="button" aria-expanded="false" aria-controls="search-sqlite-detail"><span>SQLite</span><small>Complete</small></button><div id="search-sqlite-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Canonicalization / ACL</dd></div><div><dt>Unlocks</dt><dd>Ledger / outbox</dd></div><div><dt>Next action</dt><dd>Maintain local checks.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node chain-node" type="button" aria-expanded="false" aria-controls="search-ledger-detail"><span>Ledger / outbox</span><small>Complete</small></button><div id="search-ledger-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>SQLite</dd></div><div><dt>Unlocks</dt><dd>Projections / FTS</dd></div><div><dt>Next action</dt><dd>Maintain checkpoints.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="fts-detail"><span>Projections / FTS</span><small>Complete</small></button><div id="fts-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Ledger / outbox</dd></div><div><dt>Unlocks</dt><dd>Search and report</dd></div><div><dt>Next action</dt><dd>Maintain projection checks.</dd></div></dl></div></li>
+                <li class="capability is-complete"><button class="capability-node" type="button" aria-expanded="false" aria-controls="reporting-detail"><span>Search + report</span><small>Complete</small></button><div id="reporting-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Complete — local/reference</dd></div><div><dt>Depends on</dt><dd>Projections / FTS</dd></div><div><dt>Unlocks</dt><dd>Authenticated UI reporting</dd></div><div><dt>Next action</dt><dd>Keep authorization authoritative.</dd></div></dl></div></li>
+              </ul>
+            </li>
+            <li class="pipeline-group">
+              <button class="pipeline-parent map-node is-blocked" type="button" aria-expanded="false" aria-controls="pilot-rollup"><span>Production pilot</span><small>Child tiles roll up: blocked</small></button>
+              <div id="pilot-rollup" class="dependency-detail parent-detail"><dl><div><dt>Roll-up</dt><dd>Identity / KMS, production recovery, connectors, and monitoring / on-call remain incomplete.</dd></div><div><dt>Remaining</dt><dd>All pilot dependencies.</dd></div><div><dt>Unlocks</dt><dd>Real-data pilot.</dd></div><div><dt>Next action</dt><dd>Close production blockers.</dd></div></dl></div>
+              <ul class="capability-list">
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="identity-detail"><span>Identity / KMS</span><small>Blocked</small></button><div id="identity-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Blocked</dd></div><div><dt>Depends on</dt><dd>Production identity and KMS</dd></div><div><dt>Unlocks</dt><dd>Production access boundary</dd></div><div><dt>Next action</dt><dd>Integrate production identity / KMS.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="pilot-connectors-detail"><span>Connectors</span><small>Deferred</small></button><div id="pilot-connectors-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Deferred</dd></div><div><dt>Depends on</dt><dd>Stable connector contract</dd></div><div><dt>Unlocks</dt><dd>Pilot source ingestion</dd></div><div><dt>Next action</dt><dd>Qualify connector contracts.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="pilot-recovery-detail"><span>Production recovery</span><small>Blocked</small></button><div id="pilot-recovery-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Blocked</dd></div><div><dt>Depends on</dt><dd>Production RPO / RTO qualification</dd></div><div><dt>Unlocks</dt><dd>Production pilot readiness</dd></div><div><dt>Next action</dt><dd>Qualify production recovery.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="monitoring-detail"><span>Alerts / on-call</span><small>Blocked</small></button><div id="monitoring-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Blocked</dd></div><div><dt>Depends on</dt><dd>Operational monitoring</dd></div><div><dt>Unlocks</dt><dd>Supported service response</dd></div><div><dt>Next action</dt><dd>Define alerts and on-call practice.</dd></div></dl></div></li>
+                <li class="capability is-blocked"><button class="capability-node" type="button" aria-expanded="false" aria-controls="pilot-detail"><span>Real-data pilot</span><small>Blocked</small></button><div id="pilot-detail" class="dependency-detail"><dl><div><dt>Status</dt><dd>Blocked</dd></div><div><dt>Depends on</dt><dd>Identity / KMS, production recovery, connectors, and monitoring / on-call</dd></div><div><dt>Unlocks</dt><dd>Real-data pilot</dd></div><div><dt>Next action</dt><dd>Close production blockers.</dd></div></dl></div></li>
+              </ul>
+            </li>
+          </ol>
+          <details class="map-list-view">
+            <summary>Read capability map as a list</summary>
+            <ul>
+              <li>Ingestion: local files complete; external connectors deferred.</li>
+              <li>Processing: canonicalization / ACL complete; Nango experimental; LLM synthesis is partial/deferred. Authenticated retrieval is complete locally; provenance metadata is partial; answer API, provider selection, prompt-injection/data boundary, and groundedness evaluation are deferred.</li>
+              <li>Storage / reliability: SQLite, ledger / outbox, and synthetic-local recovery rehearsal complete; production DR blocked.</li>
+              <li>Retrieval / reporting: projections / FTS and authenticated search + report complete.</li>
+              <li>Production readiness: identity / KMS, alerts / on-call, and real-data pilot blocked.</li>
+            </ul>
+          </details>
+        </section>
+        <p id="report-status" class="report-status" role="status">Loading pipeline report…</p>
+        <div id="report-content" hidden>
+          <dl id="report-kpis" class="report-kpis" aria-label="Pipeline key metrics"></dl>
+          <div class="report-detail">
+            <div class="report-chart" aria-labelledby="report-flow-heading">
+              <div class="report-subheading">
+                <h3 id="report-flow-heading">Reported volume flow</h3>
+                <span class="muted">Live counts</span>
+              </div>
+              <ol id="report-bars" class="report-bars" aria-label="Pipeline stages"></ol>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <caption>Report details</caption>
+                <thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>
+                <tbody id="report-details"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <aside class="coverage" aria-labelledby="coverage-heading">
         <h2 id="coverage-heading">Pilot coverage</h2>
         <ul>
@@ -63,6 +192,6 @@
         </ul>
       </aside>
     </main>
-    <script src="app.js" defer></script>
+    <script src="app.js?v=superhex" defer></script>
   </body>
 </html>

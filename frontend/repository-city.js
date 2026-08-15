@@ -24,4 +24,30 @@ function render(payload) {
   });
   const stamp = safe(payload.generatedAt); freshness.textContent = `Snapshot generated ${stamp}. ${safe(payload.freshness)}. ${safe(payload.note)}`; status.textContent = 'Map ready. Import/API roads and live bug metrics are unavailable in this snapshot.'; status.className = 'inline-status warning';
 }
-fetch('repository-metrics.json', {headers:{Accept:'application/json'}}).then(response => { if (!response.ok) throw new Error('snapshot unavailable'); return response.json(); }).then(render).catch(() => { status.textContent = 'Metrics snapshot unavailable. No buildings rendered; directory data is not inferred.'; status.className = 'inline-status error'; freshness.textContent = 'Repository metrics could not be loaded.'; });
+const embeddedSnapshot = {
+  generatedAt: 'checked-in static snapshot', freshness: 'stale-by-design',
+  note: 'Illustrative metrics; missing values remain unavailable.',
+  districts: [
+    {path:'frontend', language:'HTML/CSS/JS', style:'interface', buildings:[
+      {path:'frontend/index.html',loc:196,bytes:12100,tests:'unavailable',status:'prototype',production:'reference UI'},
+      {path:'frontend/app.js',loc:653,bytes:26000,tests:'smoke',status:'partial',production:'reference UI'},
+      {path:'frontend/styles.css',loc:127,bytes:21000,tests:'unavailable',status:'partial',production:'reference UI'}]},
+    {path:'kb_pipeline', language:'Python', style:'service', buildings:[
+      {path:'kb_pipeline/storage.py',loc:620,bytes:26000,tests:'unit + integration',status:'partial',production:'local/reference'},
+      {path:'kb_pipeline/postgres_authority.py',loc:240,bytes:9800,tests:'targeted',status:'partial',production:'narrow slice only'},
+      {path:'kb_pipeline/security.py',loc:310,bytes:12500,tests:'fake adapter',status:'unproven',production:'not qualified'},
+      {path:'kb_pipeline/api.py',loc:190,bytes:7800,tests:'smoke',status:'prototype',production:'not qualified'}]},
+    {path:'tests', language:'Python', style:'test', buildings:[
+      {path:'tests/test_gate6.py',loc:180,bytes:7200,tests:'passing',status:'partial',production:'synthetic-local'},
+      {path:'tests/test_production_oidc.py',loc:120,bytes:4900,tests:'passing',status:'unproven',production:'live JWKS absent'}]},
+    {path:'docs', language:'Markdown', style:'knowledge', buildings:[
+      {path:'docs/pilot-readiness.md',loc:180,bytes:7400,tests:'reviewed',status:'blocked',production:'NO-GO'},
+      {path:'docs/phase2-sre-review.md',loc:130,bytes:5600,tests:'reviewed',status:'unproven',production:'SLO/RPO/RTO absent'}]}
+  ]
+};
+
+fetch('repository-metrics.json', {headers:{Accept:'application/json'}})
+  .then(response => { if (!response.ok) throw new Error('snapshot unavailable'); return response.json(); })
+  .catch(() => embeddedSnapshot)
+  .then(render)
+  .catch(() => { status.textContent = 'Metrics snapshot unavailable. No buildings rendered; directory data is not inferred.'; status.className = 'inline-status error'; freshness.textContent = 'Repository metrics could not be loaded.'; });
