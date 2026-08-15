@@ -8,29 +8,30 @@
     ['connectors','Connectors','partial','12/12 connector contract tests passed; real provider endpoints and credentials absent.','Obtain approved non-production provider configuration, then rerun live integration.'],
     ['sync','Batch sync + workflow','partial','Batch atomicity validated; live Temporal absent.','Use configured non-prod provider environment.'],
     ['staged-raw','Staged raw lifecycle','partial','Staged raw and orphan lifecycle validated; live KMS/S3 absent.','Use configured non-prod provider environment.'],
-    ['authority','PostgreSQL authority','done','Targeted authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','Production qualification remains open.'],
+    ['authority','P4 PostgreSQL authority ledger','done','Semantic identity, authority sequence, outbox envelope, tombstone guards, and citation verification are implemented in reference core.','Production qualification remains open; authority remains correctness source.'],
     ['canonical','Canonical ObjectKey purge namespace','done','Canonical namespace includes provider, tenant, connector, source instance, object ID.','Production purge and retention evidence.'],
-    ['retrieval','Retrieval + query','done','Local ACL-filtered lexical search/report.','Production hosting and SLO evidence.'],
+    ['retrieval','Derived projection + FTS','done','Projection worker, watermark/barrier states, and ACL-filtered PostgreSQL FTS query contract.','Production worker and FTS qualification.'],
     ['answer','Answer boundary','deferred','Prototype UI contract; model/provider deferred.','Provider, citation, and groundedness qualification.'],
     ['consumers','Consumers','partial','One-page hub and static report consumer.','Deployment, access, and on-call evidence.']
   ];
   const dependencies = [
     ['Ingestion',[['Local files','done','Prototype fixtures','Real source contract'],['Connector cursor comparator/version','done','Local validation','External connector environment'],['Batch atomicity','done','21/21 targeted matrix','External provider environment']]],
     ['Processing',[['Staged raw lifecycle','done','Local validation','Non-prod KMS/S3'],['Orphan registry / sweeper','done','Local validation','Non-prod provider failure rehearsal'],['Canonical ObjectKey purge','done','Canonical purge namespace validated','Production purge evidence']]],
-    ['Storage / reliability',[['PostgreSQL authority','done','21/21 matrix; 5/5 custom checks','Production qualification'],['Lease-owner retry metadata','done','Outbox ownership/retry validated','Production workload evidence'],['Migrations 001-005','done','Idempotency validated','Production deployment evidence']]],
+    ['Storage / reliability',[['PostgreSQL authority','done','P4 identity, sequence, envelope, and lifecycle contracts','Production qualification'],['Projection worker / watermark','partial','Derived worker and barrier states observed','Production worker evidence'],['Lease-owner retry metadata','done','Outbox ownership/retry validated','Production workload evidence'],['Migrations 001-006','done','Idempotency and P4 projection schema reviewed','Production deployment evidence']]],
+    ['P4 observability',[['Ingest outcomes','done','accepted / duplicate / stale / gap / conflict / rejected / failed','Production telemetry evidence'],['Barrier states','done','fresh / pending / stale / blocked / timeout','Production latency and alert evidence'],['Provenance / failure ledger','partial','Citation, failure injection, replay evidence local/mock','Production recovery rehearsal']]],
     ['Production readiness',[['Live providers / endpoints / credentials','blocked','KMS/S3/OIDC/Temporal/OTel absent','External provider environment integration'],['SEC/OPS','blocked','Explicit NO-GO','Approval evidence'],['Production deployment','blocked','No live deployment','Release and on-call evidence']]]
   ];
   const roadmap = [
     ['Prototype/reference','Local fixtures and one-page hub','DONE','Browser-rendered reference evidence; not production.'],
     ['Prototype/reference','Backend remediation set','DONE','Atomicity, cursor semantics, staged raw/orphans, outbox ownership/retry, and canonical purge namespace locally validated.'],
-    ['Production-shaped non-prod','PostgreSQL authority validation','DONE','21/21 targeted matrix; 5/5 custom checks; migrations 001-005 idempotent.'],
+    ['Production-shaped non-prod','PostgreSQL authority and P4 observation validation','DONE','P4 identity, envelope, projection, barriers, lifecycle, provenance, and citation contracts; full suite 189 passed / 15 skipped.'],
     ['Production-shaped non-prod','Live connector integration','PARTIAL','Exactly one next item: obtain approved non-production provider configuration, then rerun live integration.'],
     ['Production qualification/release','SEC/OPS and production release','BLOCKED','SEC/OPS NO-GO; deployment, RPO/RTO, SLO, and approval evidence absent.']
   ];
   const city = [
-    ['frontend','HTML/CSS/JS','interface',[['frontend/project-visualization.html','Hub shell','browser rendering','PARTIAL','primary prototype/reference visualization'],['frontend/project-visualization.js','Hub renderer','browser rendering','PARTIAL','primary prototype/reference visualization'],['frontend/visualization-status.json','Shared facts','JSON parse','DONE','shared status data; not production evidence']]],
-    ['kb_pipeline','Python','service',[['kb_pipeline/postgres_authority.py','PostgreSQL authority','21/21 matrix; 5/5 custom checks','DONE','local evidence; production qualification absent'],['kb_pipeline/nango_adapter.py','Connector adapter','remediation checks','DONE','cursor comparator/version validated; external connector absent'],['kb_pipeline/protocol.py','Canonical protocol','local tests','DONE','canonical purge namespace and batch contract']]],
-    ['migrations','SQL','service',[['migrations/004_ingestion_remediation.sql','Staged raw lifecycle','migration review','PARTIAL','orphan registry/sweeper; live storage absent'],['migrations/005_canonical_object_keys.sql','Canonical ObjectKey','migration review','DONE','purge namespace migration']]],
+    ['frontend','HTML/CSS/JS','interface',[['frontend/project-visualization.html','Hub shell','browser rendering','PARTIAL','primary prototype/reference visualization'],['frontend/project-visualization.js','Hub renderer','browser rendering','PARTIAL','P4 observational surfaces; no mutation controls'],['frontend/p4-observations.css','P4 observation styles','syntax check','DONE','responsive/read-only status presentation'],['frontend/visualization-status.json','Shared facts','JSON parse','DONE','P4 facts; not production evidence']]],
+    ['kb_pipeline','Python','service',[['kb_pipeline/phase4_core.py','P4 authority/projection core','P4 targeted suite','DONE','local/mock evidence; production qualification absent'],['kb_pipeline/postgres_authority.py','PostgreSQL authority','21/21 matrix; 5/5 custom checks','DONE','local evidence; production qualification absent'],['kb_pipeline/nango_adapter.py','Connector adapter','remediation checks','DONE','cursor comparator/version validated; external connector absent'],['kb_pipeline/protocol.py','Canonical protocol','local tests','DONE','canonical purge namespace and batch contract']]],
+    ['migrations','SQL','service',[['migrations/004_ingestion_remediation.sql','Staged raw lifecycle','migration review','PARTIAL','orphan registry/sweeper; live storage absent'],['migrations/005_canonical_object_keys.sql','Canonical ObjectKey','migration review','DONE','purge namespace migration'],['migrations/006_phase4_projection.sql','Projection/watermark schema','migration review','PARTIAL','derived projection; production deployment absent']]],
     ['tests','Python','test',[['tests/test_remediation_lane.py','Remediation lane','5/5 passing','DONE','custom local validation'],['tests/test_phase4_qa.py','Atomic acceptance','21/21 passing','DONE','targeted local matrix']]],
     ['docs','Markdown','knowledge',[['docs/pilot-readiness.md','Pilot readiness','reviewed','BLOCKED','SEC/OPS NO-GO'],['docs/runbook.md','Runbook','reviewed','PARTIAL','production rehearsal absent']]]
   ];
@@ -40,6 +41,28 @@
   $('#next-step').textContent = S.next;
   $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
   $('#scenario-list').innerHTML = S.scenarios.map(item => `<li>${esc(item)} <span class="status-chip done">PASS</span></li>`).join('');
+  const p4 = S.p4;
+  const p4Cards = [
+    ['Semantic identity', `(${p4.identity.tenant}, ${p4.identity.source}, ${p4.identity.source_id})`, `Authority: ${p4.identity.authority}`],
+    ['Authority sequence', `accepted ${p4.authoritySequence.accepted} · applied ${p4.authoritySequence.applied} · ${p4.authoritySequence.state.toUpperCase()}`, p4.authoritySequence.source],
+    ['Outbox envelope', `${p4.outbox.protocol_version} · ${p4.outbox.operation} · revision ${p4.outbox.revision}`, `event ${p4.outbox.event_id}; idempotency ${p4.outbox.idempotency_key}`],
+    ['Projection worker / watermark', `${p4.projection.worker} · ${p4.projection.projection}`, `watermark ${p4.projection.watermark} · ${p4.projection.state.toUpperCase()} · ${p4.projection.source}`],
+    ['FTS status', p4.fts.state.toUpperCase(), `${p4.fts.index}; ${p4.fts.source}`],
+    ['Barrier states', p4.barriers.join(' · '), 'fresh / pending / stale / blocked / timeout are explicit state text']
+  ];
+  $('#p4-cards').innerHTML = p4Cards.map(([title, value, note]) => `<article class="p4-card"><h3>${esc(title)}</h3><strong>${esc(value)}</strong><p>${esc(note)}</p></article>`).join('');
+  const ledger = [
+    ['Ingest outcomes', p4.ingestOutcomes.join(', '), 'Authority ingest classification; observational fixture'],
+    ['Delete / tombstone / purge / replay', p4.lifecycle.join(' · '), 'Authority lifecycle and replay contracts; projection reflects tombstone'],
+    ['Provenance / citation evidence', `${p4.provenance.raw_reference}; ${p4.provenance.content_hash}`, `${p4.provenance.citation}; ${p4.provenance.verification}`],
+    ['Failure injection', 'OBSERVED', p4.failureEvidence.injection],
+    ['Evidence ledger', 'RECORDED', p4.failureEvidence.ledger],
+    ['Recovery boundary', 'MOCK / REFERENCE', p4.failureEvidence.recovery],
+    ['Qualification flag', 'production_qualification=false', 'Visual and correctness claims remain non-production']
+  ];
+  $('#p4-ledger').innerHTML = ledger.map(row => `<tr><th scope="row">${esc(row[0])}</th><td><strong>${esc(row[1])}</strong></td><td>${esc(row[2])}</td></tr>`).join('');
+  $('#p4-list').innerHTML = ledger.map(row => `<li><strong>${esc(row[0])}:</strong> ${esc(row[1])}. ${esc(row[2])}</li>`).join('');
+  $('#p4-status').textContent = 'Ready. Static MOCK / REFERENCE snapshot; no live provider or mutation state connected.';
   const svgNS = 'http://www.w3.org/2000/svg';
   const points = (x,y) => Array.from({length:6},(_,i) => { const a=Math.PI/3*i-Math.PI/6; return `${x+66*Math.cos(a)},${y+47*Math.sin(a)}`; }).join(' ');
   const positions = [[75,180],[195,180],[315,180],[435,180],[555,180],[675,180],[795,180],[915,180],[1025,180]];

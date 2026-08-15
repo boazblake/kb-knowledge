@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator, cast
 
 from .protocol import CanonicalChange, IdentityNamespace, ObjectKey, RevisionOutcome
+from .phase4_core import ReplayEnvelope, EnvelopeOperation, resolve_legacy_identity
 from .telemetry import span as telemetry_span
 
 
@@ -132,6 +133,17 @@ class PostgresAuthorityRepository:
         with self.transaction() as conn:
             return self._accept(conn, change, raw_object_uri=raw_object_uri,
                                 content_hash=content_hash, audit_event=audit_event)
+
+    def accept_with_sequence(self, change: CanonicalChange, *, raw_object_uri: str,
+                             content_hash: str, correlation_id: str | None = None):
+        with self.transaction() as conn:
+            outcome = self._accept(conn, change, raw_object_uri=raw_object_uri,
+                                   content_hash=content_hash,
+                                   audit_event=(correlation_id or change.idempotency_key,
+                                                change.operation.value, "pipeline"))
+            row = conn.execute("SELECT sequence FROM ingestion_outbox WHERE idempotency_key=%s",
+                               (change.idempotency_key,)).fetchone()
+            return outcome, (int(row[0]) if row else 0)
 
     def accept_and_checkpoint(self, change: CanonicalChange, *, raw_object_uri: str,
                               content_hash: str, checkpoint: tuple[IdentityNamespace, str, bool] | None = None,
@@ -262,8 +274,25 @@ class PostgresAuthorityRepository:
                    content_hash, change.occurred_at))
         conn.execute("INSERT INTO ingestion_idempotency(idempotency_key,object_key,revision,fingerprint) VALUES (%s,%s,%s,%s)",
                           (change.idempotency_key, object_key, change.revision, fingerprint))
-        conn.execute("INSERT INTO ingestion_outbox(idempotency_key,object_key,tenant,workload,payload) VALUES (%s,%s,%s,%s,%s)",
-                          (change.idempotency_key, object_key, source.tenant, source.connector, json.dumps(payload)))
+        semantic = resolve_legacy_identity(tenant=source.tenant, object_id=change.object_id,
+                                           source=source.connector, provider=source.provider,
+                                           connector=source.connector, source_instance=source.source_instance)
+        envelope = ReplayEnvelope(
+            event_id=hashlib.sha256(f"{source.tenant}:{change.idempotency_key}".encode()).hexdigest(),
+            idempotency_key=change.idempotency_key, semantic_key=semantic, revision=change.revision,
+            operation=EnvelopeOperation(change.operation.value), payload=payload,
+            raw_reference={"uri": raw_object_uri, "content_hash": content_hash},
+            provenance={"provider": source.provider, "connector": source.connector,
+                        "source_instance": source.source_instance, "subject": source.subject},
+            permissions={"readers": None if change.permissions.acl.readers is None else list(change.permissions.acl.readers),
+                         "admins": list(change.permissions.acl.admins), "resolved": change.permissions.resolved},
+            correlation_id=audit_event[0] if audit_event else change.idempotency_key,
+            observed_at=change.occurred_at)
+        conn.execute("""INSERT INTO ingestion_outbox
+            (idempotency_key,object_key,tenant,workload,payload,envelope,event_id,correlation_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                          (change.idempotency_key, object_key, source.tenant, source.connector,
+                           json.dumps(payload), envelope.serialize(), envelope.event_id, envelope.correlation_id))
         if audit_event:
             event_id, action, actor = audit_event
             conn.execute("INSERT INTO ingestion_audit(event_id,action,actor,target,tenant) VALUES (%s,%s,%s,%s,%s)",
@@ -315,6 +344,24 @@ class PostgresAuthorityRepository:
             if terminal:
                 conn.execute("INSERT INTO ingestion_dead_letters(sequence,reason) VALUES (%s,%s) ON CONFLICT DO NOTHING",
                              (sequence, reason))
+
+    def retry_dead_letter(self, sequence: int, *, operator: str) -> None:
+        """Explicitly requeue one DLQ item; automatic replay remains disabled."""
+        if not operator.strip():
+            raise ValueError("operator identity required")
+        with self.transaction() as conn:
+            count = conn.execute("""UPDATE ingestion_outbox
+                SET status='pending', attempts=0, available_at=now(), retry_at=NULL,
+                    last_error=NULL, last_retry_delay_seconds=NULL,
+                    last_retry_jitter_seconds=NULL, lease_owner=NULL,
+                    lease_expires_at=NULL
+                WHERE sequence=%s AND status='dead'""", (sequence,)).rowcount
+            if count != 1:
+                raise ValueError("dead-letter item is not replayable")
+            conn.execute("""INSERT INTO ingestion_audit(event_id,action,actor,target,tenant)
+                SELECT 'dlq-replay:' || %s, 'dlq-replay', %s, idempotency_key, tenant
+                FROM ingestion_outbox WHERE sequence=%s
+                ON CONFLICT (event_id) DO NOTHING""", (sequence, operator, sequence))
 
     # Purge lane: intent/receipts are PostgreSQL durable state, while provider
     # deletion remains owned by injected S3/cache/projection adapters.
@@ -462,8 +509,10 @@ class PostgresIngestionService:
             if self.telemetry: self.telemetry.counter("ingestion.batch.failed")
             raise
 
-    def read_raw(self, source, object_id: str) -> bytes:
+    def read_raw(self, source, object_id: str, *, principal=None) -> bytes:
         """Read only authority-referenced ciphertext and verify plaintext hash."""
+        if principal is not None and not principal.can_read(source.tenant, source.connector):
+            raise PermissionError("principal outside raw object tenant/source scope")
         if self.raw_storage is None:
             raise ValueError("encrypted raw storage required")
         reference = self.repository.raw_reference(source, object_id)

@@ -14,6 +14,7 @@ import json
 import hashlib
 import os
 import platform
+import sys
 
 from kb_pipeline.domain import ACL, Input
 from kb_pipeline.service import KnowledgeService
@@ -230,10 +231,10 @@ class Phase4BackendQA(unittest.TestCase):
             validate_evidence({"schema": "kb-pipeline.gate4-evidence.v1", "unexpected": True})
 
     def test_pilot_evidence_requires_explicit_result_json(self):
-        result = subprocess.run(["python3", "-m", "kb_pipeline.cli", "pilot-evidence", ":memory:"],
-                                cwd=ROOT, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-m", "kb_pipeline.cli", "pilot-evidence", ":memory:"],
+                                cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("--result-json", result.stderr)
+        self.assertIn("--result-json", result.stdout)
     def test_object_key_isolates_every_identity_dimension(self):
         base = IdentityNamespace("provider", "tenant", "subject", "connector", "source-a")
         variants = [

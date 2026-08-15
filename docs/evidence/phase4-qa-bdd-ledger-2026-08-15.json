@@ -1,0 +1,60 @@
+{
+  "schema": "kb-pipeline.phase4-qa-bdd-ledger.v1",
+  "captured_at": "2026-08-15",
+  "commit": "7e0caa93e803a65c6c31f17d7aa8831ab33cbba2",
+  "runtime": {
+    "nix_python": "Python 3.11.11",
+    "node": "v22.16.0",
+    "postgres": "PostgreSQL 16 disposable local instance",
+    "browser": "HeadlessChrome 149"
+  },
+  "schema_scope": {
+    "migration": "migrations/006_phase4_projection.sql",
+    "schema_claim": "Phase 4 dev/mock projection, FTS, checkpoint, and identity-alias schema"
+  },
+  "production_qualification": false,
+  "evidence_scope": "Executed QA covers Nix full suite, disposable PostgreSQL full suite, targeted Phase 4 checks, 21 labeled E2E/P4 scenarios, browser rendering, and accessibility checks. Evidence is repository-local and non-production.",
+  "scope_note": "Product brief E2E-001..E2E-010 and planner P4-01..P4-11 were not present as labeled source files. IDs below preserve requested scenario labels and map behaviors to available repository evidence; missing labeled specs remain a traceability gap.",
+  "runs": [
+    {"id":"E2E-001","expected":"Authority commit feeds projection, PostgreSQL FTS/query, and barrier freshness.","observed":"Disposable PostgreSQL worker, FTS query, checkpoint, and fresh barrier checks passed.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e001_p4_03_worker_fts_and_projection_barrier"},
+    {"id":"E2E-002","expected":"tenant/source/source_id identity isolates objects and provenance aliases.","observed":"Identity dimensions isolate in local and disposable PostgreSQL authority checks; collision fails closed.","status":"pass","evidence":"tests/test_p4_core.py; tests/test_phase4_qa.py; tests/test_p3_authority.py"},
+    {"id":"E2E-003","expected":"Search immediately after authority commit observes required freshness boundary.","observed":"Disposable PostgreSQL barrier rejects search below required applied sequence.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e003_p4_06_barrier_blocks_until_watermark"},
+    {"id":"E2E-004","expected":"update, duplicate, conflict, gap, and delete preserve revision semantics.","observed":"Disposable PostgreSQL projection accepts newer revision, rejects stale replay, and retains delete tombstone.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e004_p4_07_update_delete_revision_guard"},
+    {"id":"E2E-005","expected":"Replay and purge do not resurrect deleted objects.","observed":"Local replay/tombstone/purge and disposable PostgreSQL tombstone checks passed.","status":"pass","evidence":"tests/test_phase4_qa.py; tests/test_p3_authority.py; tests/test_purge_recovery.py"},
+    {"id":"E2E-006","expected":"Citation/provenance verifies current authority revision, ACL, and raw content hash.","observed":"Disposable PostgreSQL check accepts current citation and rejects tenant, hash, and authority-revision mismatch.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e006_p4_08_citation_hash_acl_and_authority_validation"},
+    {"id":"E2E-007","expected":"Failure injection retries, reaches dead-letter, and supports replay recovery.","observed":"Disposable PostgreSQL worker reaches bounded DLQ and recovers through authorized replay without authority mutation.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone"},
+    {"id":"E2E-008","expected":"Evidence artifact records scenario, environment, schema, commit, and non-production boundary.","observed":"Ledger and runbook record runtime, migration schema, commit, evidence scope, and production_qualification=false.","status":"pass","evidence":"docs/evidence/phase4-core-runbook-2026-08-15.md; this file"},
+    {"id":"E2E-009","expected":"Frontend observation renders read-only authority/projection/FTS ledger without mutation controls.","observed":"Browser render passed with read-only label and observation ledger; favicon request returned 404.","status":"pass","evidence":"browser http://127.0.0.1:8769/project-visualization.html; /tmp/kb-p4-ui.png"},
+    {"id":"E2E-010","expected":"Frontend observational surface exposes keyboard/accessibility semantics and meaningful status text.","observed":"Browser/accessibility checks passed; headings, regions, table headers, live status, and keyboard-focusable controls were exposed.","status":"pass","evidence":"tests/test_phase4_qa.py::Phase4FrontendQA; agent-browser snapshot"},
+    {"id":"P4-01","expected":"Semantic identity uses tenant/source/source_id.","observed":"Pass.","status":"pass","evidence":"tests/test_p4_core.py"},
+    {"id":"P4-02","expected":"Replay envelope is deterministic and round-trippable.","observed":"Pass.","status":"pass","evidence":"tests/test_p4_core.py"},
+    {"id":"P4-03","expected":"Projection schema supports derived document, FTS, checkpoint, and aliases.","observed":"Migration 006 applied idempotently on disposable PostgreSQL.","status":"pass","evidence":"migrations/006_phase4_projection.sql; tests/test_p4_postgres_integration.py"},
+    {"id":"P4-04","expected":"Tenant/source ACL filtering occurs before result limiting.","observed":"Disposable PostgreSQL query returns authorized tenant row despite higher-ranked unauthorized rows.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e002_p4_04_acl_before_limit_and_tenant_isolation"},
+    {"id":"P4-05","expected":"PostgreSQL FTS query returns bounded provenance DTOs.","observed":"Disposable PostgreSQL FTS source filter returns bounded QueryResultDTO with provenance.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e009_p4_05_source_filter_is_enforced"},
+    {"id":"P4-06","expected":"Barrier never reports fresh before minimum applied sequence.","observed":"Fresh/pending/stale/blocked/timeout behavior passed.","status":"pass","evidence":"tests/test_p4_core.py"},
+    {"id":"P4-07","expected":"Projection tombstone and revision guards prevent stale resurrection.","observed":"Disposable PostgreSQL worker update/delete/replay checks passed.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e004_p4_07_update_delete_revision_guard; tests/test_p4_postgres_integration.py::test_e2e005_replay_is_idempotent_and_tombstone_persists"},
+    {"id":"P4-08","expected":"Citation verification rejects stale revision, tombstone, ACL, or hash mismatch.","observed":"Disposable PostgreSQL citation check rejects tenant, hash, and authority revision mismatch.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e006_p4_08_citation_hash_acl_and_authority_validation"},
+    {"id":"P4-09","expected":"Injected projection failure remains retryable and dead-letter/replay evidence is observable.","observed":"Failure remains bounded and observable through DLQ; authorized replay advances watermark; stale upsert cannot resurrect tombstone.","status":"pass","evidence":"tests/test_p4_postgres_integration.py::test_e2e007_p4_09_retry_bounded_dlq_authorized_recovery_and_tombstone"},
+    {"id":"P4-10","expected":"QA evidence is reproducible and explicitly non-production.","observed":"Nix and disposable PostgreSQL suites passed; ledger/runbook carry production_qualification=false.","status":"pass","evidence":"flake.nix; docs/evidence/phase4-core-runbook-2026-08-15.md; this file"},
+    {"id":"P4-11","expected":"Frontend observation and accessibility checks pass; visualization remains observational.","observed":"Browser and accessibility checks passed; visualization remains read-only. Favicon 404 remains P3.","status":"pass","evidence":"frontend/project-visualization.html; frontend/project-visualization.js; tests/test_phase4_qa.py; agent-browser"}
+  ],
+  "summary": {
+    "nix_full_suite": "200 passed, 26 skipped",
+    "nix_full_suite_skip_note": "Seven additional skips due to unavailable PyJWT/OIDC imports.",
+    "disposable_postgres_full_suite": "200 passed, 0 skipped",
+    "targeted_p4": "14 passed, 0 failed",
+    "labeled_scenarios": "21/21 pass",
+    "browser_accessibility": "pass",
+    "coverage": "not measured"
+  },
+  "defects": [
+    {"severity":"P2","title":"Labeled E2E/P4 source specs unavailable","observed":"No E2E-001..E2E-010 or P4-01..P4-11 planner files found.","next_fix":"Add versioned brief/planner artifacts and link each ledger row to exact Given/When/Then acceptance text."},
+    {"severity":"P3","title":"Visualization requests missing favicon","observed":"Browser network capture returned 404 for /favicon.ico; no console errors.","next_fix":"Add favicon or remove implicit request if desired; non-blocking observational defect."}
+  ],
+  "limitations": [
+    "MOCK/REFERENCE only: no live provider calls, credentials, cloud infrastructure, production identity, production SLO/RPO/RTO, or production concurrency qualification.",
+    "Frontend visualization is observational and read-only; it does not establish correctness.",
+    "P2 source-spec artifacts are absent, so scenario labels map to repository evidence rather than checked-in Given/When/Then source specs.",
+    "Coverage was not measured."
+  ]
+}
