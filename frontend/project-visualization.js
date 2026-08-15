@@ -5,7 +5,7 @@
   const statusClass = value => value.toLowerCase();
   const components = [
     ['files','Local files','done','Prototype/reference fixtures and browser verification.','Qualify real source contract.'],
-    ['connectors','Connectors','partial','Cursor comparator validated; external connector absent.','Use configured non-prod provider environment.'],
+    ['connectors','Connectors','partial','12/12 connector contract tests passed; real provider endpoints and credentials absent.','Obtain approved non-production provider configuration, then rerun live integration.'],
     ['sync','Batch sync + workflow','partial','Batch atomicity validated; live Temporal absent.','Use configured non-prod provider environment.'],
     ['staged-raw','Staged raw lifecycle','partial','Staged raw and orphan lifecycle validated; live KMS/S3 absent.','Use configured non-prod provider environment.'],
     ['authority','PostgreSQL authority','done','Targeted authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','Production qualification remains open.'],
@@ -24,7 +24,7 @@
     ['Prototype/reference','Local fixtures and one-page hub','DONE','Browser-rendered reference evidence; not production.'],
     ['Prototype/reference','Backend remediation set','DONE','Atomicity, cursor semantics, staged raw/orphans, outbox ownership/retry, and canonical purge namespace locally validated.'],
     ['Production-shaped non-prod','PostgreSQL authority validation','DONE','21/21 targeted matrix; 5/5 custom checks; migrations 001-005 idempotent.'],
-    ['Production-shaped non-prod','Approved connector against mock path','PARTIAL','Exactly one next item: qualify one approved connector against mock path, then obtain real non-production provider configuration.'],
+    ['Production-shaped non-prod','Live connector integration','PARTIAL','Exactly one next item: obtain approved non-production provider configuration, then rerun live integration.'],
     ['Production qualification/release','SEC/OPS and production release','BLOCKED','SEC/OPS NO-GO; deployment, RPO/RTO, SLO, and approval evidence absent.']
   ];
   const city = [
@@ -36,7 +36,7 @@
   ];
   function $(selector) { return document.querySelector(selector); }
   $('#suite-count').textContent = `${S.suite.pass}/${S.suite.run}`;
-  $('#postgres-count').textContent = `${S.postgresValidation.latestPass}/${S.postgresValidation.latestRun}`;
+  $('#postgres-count').textContent = S.postgresValidation.status;
   $('#next-step').textContent = S.next;
   $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
   $('#scenario-list').innerHTML = S.scenarios.map(item => `<li>${esc(item)} <span class="status-chip done">PASS</span></li>`).join('');

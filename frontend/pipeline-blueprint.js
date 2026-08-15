@@ -13,11 +13,11 @@ const nodes=[
 ['ops','OTel / SLO / on-call','Cross-cutting identity / observability',260,455,'blocked','Observability','Telemetry ports; load/SLO harness.','telemetry.py; pilot-readiness.md','e10de7c','Real deployment, alerts, rehearsal.','Yes'],
 ['identity','OIDC / JWKS identity','Cross-cutting identity / observability',600,455,'partial','Identity & Access','OIDC local JWKS packet.','security.py; oidc-jwks-local-2026-08-15.md','e10de7c','Live rotation and tenant policy evidence.','Yes']
 ];
-const S = window.VISUALIZATION_STATUS || {decision:'Production NO-GO',snapshot:'b80da6c + d955b2c + edd8f23',provider:{liveCalls:0},postgresValidation:{latestRun:21,latestPass:21}};
+const S = window.VISUALIZATION_STATUS || {decision:'Production NO-GO',snapshot:'30283d3',suite:{pass:12,run:12},provider:{liveCalls:0}};
 const fact = document.createElement('p'); fact.className = 'scope-note';
-fact.textContent = `${S.decision}. GREEN local evidence: PostgreSQL authority/purge/recovery ${S.postgresValidation.latestPass}/${S.postgresValidation.latestRun}; custom checks ${S.postgresValidation.customChecksPass}/${S.postgresValidation.customChecksRun}; migrations ${S.postgresValidation.migrations}; ${S.provider.liveCalls} live calls. Local evidence does not equal production readiness.`;
+fact.textContent = `${S.decision}. GREEN local evidence: connector contracts ${S.suite.pass}/${S.suite.run}; mock PostgreSQL E2E documented; full mock flow passed previously. YELLOW live provider gap: endpoints and credentials absent. RED production qualification. ${S.provider.liveCalls} live calls. Local evidence does not equal production readiness.`;
 document.querySelector('.blueprint-main')?.insertBefore(fact, document.querySelector('.blueprint-grid'));
-document.querySelector('.no-go').textContent = `${S.decision} · live KMS/S3/OIDC/Temporal/OTel endpoints and external connector absent; zero live calls. Snapshot: ${S.snapshot}.`;
+document.querySelector('.no-go').textContent = `${S.decision} · MOCK / REFERENCE only; real provider endpoints and credentials absent; zero live calls. Snapshot: ${S.snapshot}.`;
 document.querySelector('.blueprint-main > .scope-note')?.replaceChildren(document.createTextNode('pipelineflow.png labels. Green DONE; yellow PARTIAL; red BLOCKED; blue DEFERRED. Local evidence never equals production readiness.'));
 const legend = document.createElement('ul'); legend.className = 'blueprint-legend'; legend.setAttribute('aria-label', 'Status legend');
 legend.innerHTML = ['DONE','PARTIAL','BLOCKED','DEFERRED'].map(status => `<li class="legend-key"><span class="swatch ${status.toLowerCase()}" aria-hidden="true"></span>${status}</li>`).join('');

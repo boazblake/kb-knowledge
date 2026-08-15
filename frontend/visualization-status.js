@@ -1,26 +1,27 @@
 /* Shared visualization facts. Keep mirrored in visualization-status.json. */
 window.VISUALIZATION_STATUS = Object.freeze({
-  snapshot: 'e82b1d2',
+  snapshot: '30283d3',
   decision: 'Production NO-GO',
   evidenceLabel: 'MOCK / REFERENCE — not live provider or production evidence',
   environment: 'Mock/local provider environment',
-  remediationStage: 'GREEN — mock/reference evidence',
-  provider: { endpointsConfigured: false, credentialsConfigured: false, liveCalls: 0, externalConnector: false, absent: ['KMS', 'S3', 'OIDC', 'Temporal', 'OTel'] },
-  suite: { name: 'Mock E2E', run: 14, pass: 14, skipped: 0 },
-  postgresValidation: { version: '16.9', lifecycle: 'fresh disposable', latestRun: 14, latestPass: 14, migrations: '001-005 idempotent' },
-  scenarios: ['OIDC/JWKS', 'Synthetic connector', 'KMS', 'S3', 'PostgreSQL authority/outbox/checkpoint', 'Temporal boundary', 'Telemetry sink', 'Wrong tenant', 'Key failure', 'Object failure', 'Duplicate', 'Retry', 'Rollback/orphan', 'Purge/no-resurrection'],
-  remediation: ['Batch atomicity validated', 'Cursor comparator validated', 'Staged raw / orphan lifecycle validated', 'Outbox ownership / retry validated', 'Canonical purge namespace validated'],
+  remediationStage: 'GREEN — local mock/reference evidence',
+  provider: { endpointsConfigured: false, credentialsConfigured: false, liveCalls: 0, externalConnector: false, absent: ['approved non-production provider configuration', 'real provider transport', 'credentials'] },
+  suite: { name: 'Connector contract tests', run: 12, pass: 12, skipped: 0 },
+  mockFlow: { status: 'PASS', description: 'Full mock flow passed previously' },
+  postgresValidation: { status: 'DOCUMENTED', version: 'PostgreSQL', lifecycle: 'mock E2E', evidence: 'Mock PostgreSQL E2E documented' },
+  scenarios: ['Cursor acknowledgement', 'Revision ordering', 'Upsert/update', 'Delete', 'Permission change', 'Retry classification', 'Permanent failure classification', 'Duplicate webhook', 'Incomplete snapshot safety', 'Provenance', 'Credential redaction', 'Tenant/source identity'],
+  remediation: ['Connector contract validated', 'Mock PostgreSQL E2E documented', 'Full mock flow passed previously'],
   statuses: ['DONE', 'PARTIAL', 'BLOCKED', 'DEFERRED'],
   horizons: ['Prototype/reference', 'Production-shaped non-prod', 'Production qualification/release'],
   evidence: [
-    'Commit: e82b1d2',
-    'MOCK E2E: 14/14 passed across OIDC/JWKS, synthetic connector, KMS, S3, PostgreSQL authority/outbox/checkpoint, Temporal boundary, telemetry sink, tenant and failure paths',
-    'Fresh disposable PostgreSQL 16.9; migrations 001-005 idempotent',
-    'Duplicate, retry, rollback/orphan, purge/no-resurrection behavior passed in mock path'
+    'Commit: 30283d3',
+    'Connector contract tests: 12/12 passed',
+    'Mock PostgreSQL E2E documented; full mock flow passed previously',
+    'MOCK/REFERENCE only; no real provider endpoints or credentials'
   ],
-  missingNonProd: ['Configured non-prod OIDC/KMS/S3/Temporal/OTel endpoints', 'External connector environment'],
-  missingProduction: ['Live KMS/S3/OIDC/Temporal/OTel', 'External connector', 'Production load/SLO', 'RPO/RTO', 'Recovery rehearsal', 'SEC/OPS approval'],
-  next: 'Qualify one approved connector against mock path, then obtain real non-production provider configuration.'
+  missingNonProd: ['Approved non-production provider configuration', 'Real provider endpoints', 'Provider credentials'],
+  missingProduction: ['Live provider qualification', 'Production load/SLO', 'RPO/RTO', 'Recovery rehearsal', 'SEC/OPS approval'],
+  next: 'Obtain approved non-production provider configuration, then rerun live integration.'
 });
 
 function visualizationStatus() { return window.VISUALIZATION_STATUS; }

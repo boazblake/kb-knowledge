@@ -1,7 +1,7 @@
-const S = window.VISUALIZATION_STATUS || {snapshot:'b80da6c + d955b2c + edd8f23',provider:{liveCalls:0}};
+const S = window.VISUALIZATION_STATUS || {snapshot:'30283d3',provider:{liveCalls:0}};
 const stages = [
   ['Input','DONE','DONE','PARTIAL','Frontend browser verification; local file scan.','Approved source contract absent.'],
-  ['Connector','PARTIAL','DEFERRED','PARTIAL','Contract experiment only; zero live calls.','Approved connector and disposable provider absent.'],
+  ['Connector','PARTIAL','DEFERRED','PARTIAL','12/12 connector contract tests passed; zero live calls.','Approved non-production provider configuration, endpoints, and credentials absent.'],
   ['Canonical Model','DONE','DEFERRED','PARTIAL','Protocol, idempotency, quarantine fixtures.','Real-data qualification absent.'],
   ['Knowledge Engine','PARTIAL','BLOCKED','DONE','PostgreSQL authority/purge/recovery matrix 21/21; custom checks 5/5; migrations 001-005 idempotent.','KMS/S3/Temporal/OTel live evidence and production RPO/RTO absent.'],
   ['Output','PARTIAL','BLOCKED','PARTIAL','Frontend browser verification; local search/report.','Approved deployment and production SLO absent.'],
