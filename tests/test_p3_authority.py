@@ -1,5 +1,6 @@
 import os
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -8,7 +9,48 @@ from kb_pipeline.nango_adapter import FakeNangoTransport, NangoAdapter, NangoPol
 from kb_pipeline.postgres_authority import (MigrationRunner, PostgresAuthorityRepository,
                                             PostgresUnavailable, _fingerprints_match,
                                             _normalize_fingerprint)
-from kb_pipeline.protocol import IdentityNamespace
+from kb_pipeline.protocol import IdentityNamespace, ObjectKey
+
+
+@contextmanager
+def _postgres_repository(dsn):
+    repo = PostgresAuthorityRepository(dsn)
+    try:
+        repo.open()
+        yield repo
+    except BaseException:
+        try:
+            repo.close()
+        except BaseException:
+            pass
+        raise
+    else:
+        repo.close()
+
+
+@contextmanager
+def _reopened_postgres_repository(repo):
+    """Reopen persistence with a fresh pool; psycopg pools cannot be reopened."""
+    repo.close()
+    reopened = PostgresAuthorityRepository(repo.dsn, migrations_dir=repo.migrations.directory)
+    try:
+        reopened.open()
+    except BaseException:
+        try:
+            reopened.close()
+        except BaseException:
+            pass
+        raise
+    try:
+        yield reopened
+    except BaseException:
+        try:
+            reopened.close()
+        except BaseException:
+            pass
+        raise
+    else:
+        reopened.close()
 
 
 class P3AuthorityUnitTests(unittest.TestCase):
@@ -62,6 +104,62 @@ class P3AuthorityUnitTests(unittest.TestCase):
             repo.open()
             with repo.transaction() as conn:
                 self.assertEqual((), MigrationRunner().run(conn))
+        finally:
+            repo.close()
+
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_migration_005_is_compatible_and_directly_idempotent(self):
+        repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
+        try:
+            repo.open()
+            migration = Path(__file__).parents[1] / "migrations" / "005_canonical_object_keys.sql"
+            with repo.transaction() as conn:
+                conn.execute(migration.read_text(encoding="utf-8"))
+                conn.execute(migration.read_text(encoding="utf-8"))
+                column = conn.execute("""SELECT attgenerated, attnotnull
+                    FROM pg_attribute
+                    WHERE attrelid='ingestion_authority'::regclass AND attname='object_key'""").fetchone()
+                self.assertEqual(("", True), tuple(column))
+        finally:
+            repo.close()
+
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_repository_writes_canonical_key_and_reads_exact_namespace(self):
+        from kb_pipeline.domain import ACL, CanonicalDocument, SourceVersion
+        from kb_pipeline.protocol import CanonicalChange, Operation, PermissionState, ProvenanceLink
+        repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
+        suffix = uuid4().hex
+        observed = datetime.now(timezone.utc)
+        try:
+            repo.open()
+            changes = []
+            sources = (
+                IdentityNamespace("provider-a", f"tenant-{suffix}", connector="connector", source_instance="source"),
+                IdentityNamespace("provider-b", f"tenant-{suffix}", connector="connector", source_instance="source"),
+                IdentityNamespace("provider-a", f"tenant-{suffix}", connector="other", source_instance="source"),
+                IdentityNamespace("provider-a", f"tenant-{suffix}", connector="connector", source_instance="other"),
+                IdentityNamespace("provider-a", f"other-{suffix}", connector="connector", source_instance="source"),
+            )
+            for index, source in enumerate(sources):
+                document = CanonicalDocument("same-object", SourceVersion("same-object", "1", "source://object",
+                                            observed, f"hash-{index}"), "title", "body", ACL(frozenset({"reader"})))
+                change = CanonicalChange("same-object", source, 1, Operation.UPSERT, document, f"{suffix}-{index}",
+                                         ProvenanceLink("test", suffix), PermissionState(document.acl), occurred_at=observed)
+                self.assertEqual("accepted", repo.accept(change, raw_object_uri=f"source://{index}",
+                                                          content_hash=f"hash-{index}").value)
+                changes.append(change)
+            with repo.transaction() as conn:
+                rows = conn.execute("""SELECT provider,tenant,connector,source_instance,object_id,object_key
+                    FROM ingestion_authority WHERE object_id=%s AND tenant LIKE %s""",
+                                    ("same-object", f"%{suffix}")).fetchall()
+            self.assertEqual(5, len(rows))
+            for index, change in enumerate(changes):
+                identity = (change.source.provider, change.source.tenant, change.source.connector,
+                            change.source.source_instance, change.object_id)
+                row = next(row for row in rows if row[:5] == identity)
+                self.assertEqual(ObjectKey.from_change(change).encoded(), row[5])
+                self.assertEqual((f"source://{index}", f"hash-{index}", 1, "upsert"),
+                                 repo.raw_reference(change.source, change.object_id))
         finally:
             repo.close()
 
@@ -131,7 +229,7 @@ class P3AuthorityUnitTests(unittest.TestCase):
             self.assertEqual("gap", repo.accept(change(3, f"{suffix}-3"), raw_object_uri="nango://obj", content_hash="hash").value)
             claimed = repo.claim_outbox("test", tenant=tenant, workload=workload)
             self.assertEqual(1, len(claimed))
-            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", max_attempts=1)
+            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", claimed[0]["worker"], max_attempts=1)
         finally:
             repo.close()
 
@@ -180,6 +278,42 @@ class P3AuthorityUnitTests(unittest.TestCase):
             self.assertEqual(claimed[0]["sequence"], reclaimed[0]["sequence"])
         finally:
             repo.close()
+
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_outbox_failure_requires_lease_owner(self):
+        repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
+        suffix = uuid4().hex
+        try:
+            repo.open()
+            with repo.transaction() as conn:
+                conn.execute("INSERT INTO ingestion_outbox (idempotency_key,object_key,tenant,workload,payload) VALUES (%s,%s,%s,%s,%s)", (suffix, "{}", "t", "c", "{}"))
+            claimed = repo.claim_outbox("owner", tenant="t", workload="c")
+            for worker in (None, "", "other"):
+                with self.assertRaises(PermissionError):
+                    repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", worker)
+            repo.mark_outbox_failed(claimed[0]["sequence"], "downstream", "owner", max_attempts=1)
+        finally:
+            repo.close()
+
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_purge_tombstone_uses_full_namespace_and_blocks_replay(self):
+        from kb_pipeline.domain import ACL, CanonicalDocument, SourceVersion
+        from kb_pipeline.purge import PurgeIntent, RetentionDecision
+        from kb_pipeline.protocol import CanonicalChange, Operation, PermissionState, ProvenanceLink
+        suffix = uuid4().hex
+        source = IdentityNamespace("provider", f"tenant-{suffix}", connector=f"connector-{suffix}", source_instance=f"source-{suffix}")
+        observed = datetime.now(timezone.utc)
+        document = CanonicalDocument("object", SourceVersion("object", "1", "source://object", observed, "hash"), "title", "body", ACL(frozenset({"reader"})))
+        change = CanonicalChange("object", source, 1, Operation.UPSERT, document, f"{suffix}-1", ProvenanceLink("test", suffix), PermissionState(document.acl), occurred_at=observed)
+        with _postgres_repository(os.environ["P3_POSTGRES_DSN"]) as repo:
+            repo.accept(change, raw_object_uri="source://object", content_hash="hash")
+            target = ObjectKey.from_change(change).encoded()
+            repo.create_purge_intent(PurgeIntent(suffix, f"{suffix}-purge", target, "actor", "correlation", RetentionDecision("customer")))
+            self.assertEqual((), repo.tombstone_for_purge(suffix, ObjectKey("provider", f"other-{suffix}", source.connector, source.source_instance, "object").encoded(), "actor", "correlation"))
+            self.assertEqual((target,), repo.tombstone_for_purge(suffix, target, "actor", "correlation"))
+            with _reopened_postgres_repository(repo) as reopened:
+                with self.assertRaisesRegex(ValueError, "purged object"):
+                    reopened.accept(change.__class__("object", source, 2, Operation.UPSERT, document, f"{suffix}-2", change.provenance, change.permissions, occurred_at=observed), raw_object_uri="source://object", content_hash="hash")
 
 
 if __name__ == "__main__":

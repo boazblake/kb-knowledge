@@ -48,6 +48,21 @@ class IdentityNamespace:
                            self.connector, self.source_instance), separators=(",", ":"))
 
 
+class CursorSemantics(Protocol):
+    """Connector-owned ordering and version; core never guesses cursor order."""
+    version: str
+    def compare(self, left: str, right: str) -> int: ...
+
+
+@dataclass(frozen=True)
+class OpaqueCursorSemantics:
+    version: str = "opaque-v1"
+    def compare(self, left: str, right: str) -> int:
+        if left == right:
+            return 0
+        raise ValueError("opaque cursor has no ordering")
+
+
 @dataclass(frozen=True)
 class ObjectKey:
     provider: str
@@ -63,7 +78,9 @@ class ObjectKey:
                    change.source.source_instance,
                    change.object_id)
 
-    def encoded(self): return json.dumps((self.provider, self.tenant, self.connector, self.source_instance, self.object))
+    def encoded(self):
+        """Stable serialization used by authority, outbox, and purge tombstones."""
+        return json.dumps(self.tuple())
     def tuple(self): return (self.provider, self.tenant, self.connector, self.source_instance, self.object)
 
 

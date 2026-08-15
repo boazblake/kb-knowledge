@@ -11,11 +11,14 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
+import hashlib
+import os
+import platform
 
 from kb_pipeline.domain import ACL, Input
 from kb_pipeline.service import KnowledgeService
 from kb_pipeline.storage import LexicalIndex, MemoryAuditStore, MemoryDocumentStore, SQLiteStore
-from kb_pipeline.adapters import LocalFilesConnector, PlainTextCanonicalizer
+from kb_pipeline.adapters import LocalFilesConnector, PlainTextCanonicalizer, source_version
 from kb_pipeline.protocol import (
     CanonicalChange, CurrentStateStore, IdentityNamespace, KnowledgeEngine,
     LexicalProjection, Operation, PermissionState, ProvenanceLink,
@@ -50,6 +53,138 @@ def item(name="record", payload=b"classified alpha", metadata=None, observed_at=
 
 
 class Phase4BackendQA(unittest.TestCase):
+    def test_search_metadata_uses_latest_non_delete_source_identity(self):
+        service = make_service()
+        record = item(
+            name="metadata-record", metadata={"classification": "internal"},
+        )
+        record = Input(
+            record.connector, record.external_id, record.payload, record.source_uri,
+            record.observed_at, record.metadata, record.permissions,
+            provider="provider-x", tenant="tenant-y", source_instance="instance-z",
+        )
+        self.assertTrue(service.ingest(record, "metadata-job"))
+        document = service.store.get(record.external_id)
+        hit = service.index.search("classified")[0]
+        metadata = service.search_metadata(hit)
+        self.assertTrue(metadata["source_identity"].startswith("provider-x:tenant-y:fixture:"))
+        service.tombstone(document.document_id, "metadata-actor")
+        after_delete = service._source_for(document.document_id, document.source.source_id)
+        self.assertEqual("provider-x", after_delete.provider)
+        self.assertEqual("tenant-y", after_delete.tenant)
+        self.assertEqual("fixture", after_delete.connector)
+        self.assertEqual("instance-z", after_delete.source_instance)
+
+    def test_gate5_atomic_accept_rolls_back_before_and_after_commit_failures(self):
+        """Raw metadata, ledger/outbox, and audit share one commit boundary."""
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "knowledge.db"
+            store = SQLiteStore(db)
+            ledger = RelationalReferenceLedger(store.db)
+            source = IdentityNamespace("fixture", "tenant", "subject", "connector", "instance")
+            change = CanonicalChange(
+                "atomic", source, 1, Operation.UPSERT, None, "atomic:1",
+                ProvenanceLink("raw", "atomic"), PermissionState(ACL(frozenset({"reader"}))),
+            )
+            record = __import__("kb_pipeline.domain", fromlist=["RawRecord"]).RawRecord(
+                SourceVersion("atomic", "1", "file:///atomic", datetime.now(timezone.utc), "hash-atomic"),
+                b"atomic payload", {},
+            )
+            for callbacks in (
+                ((lambda db: (_ for _ in ()).throw(RuntimeError("before commit"))),),
+                ((lambda db: store._save_raw_sql(db, record)),
+                 (lambda db: (_ for _ in ()).throw(RuntimeError("after append")))),
+            ):
+                with self.assertRaises(RuntimeError):
+                    ledger.atomic_accept(change, before_append=callbacks[:1], after_append=callbacks[1:])
+                self.assertEqual(0, store.db.execute("SELECT count(*) FROM raw_records").fetchone()[0])
+                self.assertEqual(0, store.db.execute("SELECT count(*) FROM protocol_ledger").fetchone()[0])
+                self.assertEqual(0, store.db.execute("SELECT count(*) FROM audit").fetchone()[0])
+            event = ("atomic:1", "ingest", "qa", "atomic", datetime.now(timezone.utc).isoformat())
+            self.assertEqual("accepted", ledger.atomic_accept(
+                change, before_append=((lambda db: store._save_raw_sql(db, record)),),
+                after_append=((lambda db: db.execute("INSERT INTO audit VALUES (?,?,?,?,?)", event)),),
+            ).value)
+            self.assertEqual((1, "pending"), tuple(ledger.outbox()[0]))
+
+    def test_gate5_projection_failure_retries_to_convergence(self):
+        ledger = RelationalReferenceLedger(sqlite3.connect(":memory:"))
+        class FailingProjection:
+            name = "failing"
+            def apply(self, change): raise RuntimeError("projection down")
+            def remove(self, object_id, source=None): pass
+        engine = KnowledgeEngine(ledger, CurrentStateStore(), (FailingProjection(),))
+        with self.assertRaises(RuntimeError): engine.apply(CanonicalChange(
+            "converge", IdentityNamespace("fixture", "tenant", "subject", "connector", "instance"),
+            1, Operation.UPSERT, None, "converge:1", ProvenanceLink("raw", "converge"),
+            PermissionState(ACL(frozenset({"reader"}))),
+        ))
+        self.assertEqual("pending", ledger.outbox()[0][1])
+        rebuilt = LexicalIndex()
+        converged = KnowledgeEngine(ledger, CurrentStateStore(), (LexicalProjection(rebuilt),))
+        converged.process_outbox()
+        self.assertEqual("applied", ledger.outbox()[0][1])
+
+    def test_gate5_concurrent_duplicate_acceptance_has_one_ledger_row(self):
+        ledger = RelationalReferenceLedger(sqlite3.connect(":memory:", check_same_thread=False))
+        source = IdentityNamespace("fixture", "tenant", "subject", "connector", "instance")
+        change = CanonicalChange("duplicate", source, 1, Operation.UPSERT, None, "duplicate:1",
+                                 ProvenanceLink("raw", "duplicate"), PermissionState(ACL(frozenset({"reader"}))))
+        outcomes = []
+        threads = [threading.Thread(target=lambda: outcomes.append(ledger.append_outcome(change))) for _ in range(8)]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+        self.assertEqual(1, sum(outcome == RevisionOutcome.ACCEPTED for outcome in outcomes))
+        self.assertEqual(7, sum(outcome == RevisionOutcome.DUPLICATE for outcome in outcomes))
+        self.assertEqual(1, len(ledger.changes()))
+
+    def test_gate5_gap_persists_and_recovery_does_not_skip_revision(self):
+        ledger = RelationalReferenceLedger(sqlite3.connect(":memory:"))
+        source = IdentityNamespace("fixture", "tenant", "subject", "connector", "instance")
+        def make(revision):
+            return CanonicalChange("gap", source, revision, Operation.UPSERT, None, f"gap:{revision}",
+                                    ProvenanceLink("raw", "gap"), PermissionState(ACL(frozenset({"reader"}))))
+        self.assertEqual(RevisionOutcome.GAP, ledger.append_outcome(make(3)))
+        self.assertEqual(1, len(ledger.gaps()))
+        self.assertEqual(RevisionOutcome.GAP, ledger.append_outcome(make(3)))
+        self.assertEqual(RevisionOutcome.ACCEPTED, ledger.append_outcome(make(1)))
+        self.assertEqual(RevisionOutcome.ACCEPTED, ledger.append_outcome(make(2)))
+        self.assertEqual((1, 2), tuple(change.revision for change in ledger.changes()))
+
+    def test_gate5_checkpoint_replay_is_bounded_and_repair_rebuilds_all(self):
+        ledger = RelationalReferenceLedger(sqlite3.connect(":memory:"))
+        index = LexicalIndex()
+        engine = KnowledgeEngine(ledger, CurrentStateStore(), (LexicalProjection(index),))
+        source = IdentityNamespace("fixture", "tenant", "subject", "connector", "instance")
+        for revision in (1, 2, 3):
+            doc = CanonicalDocument("bounded", SourceVersion("bounded", str(revision), "file:///bounded", datetime.now(timezone.utc), f"hash-{revision}"), "bounded", f"v{revision}", ACL(frozenset({"reader"})))
+            self.assertEqual(RevisionOutcome.ACCEPTED, ledger.append_outcome(CanonicalChange(
+                "bounded", source, revision, Operation.UPSERT, doc, f"bounded:{revision}",
+                ProvenanceLink("raw", "bounded"), PermissionState(ACL(frozenset({"reader"}))),
+            )))
+        engine.replay()
+        checkpoint = ledger.checkpoint("default:lexical")
+        self.assertEqual(3, checkpoint)
+        self.assertTrue(engine.replay())
+        self.assertEqual(3, ledger.checkpoint("default:lexical"))
+        repaired = LexicalIndex()
+        repair = KnowledgeEngine(ledger, CurrentStateStore(), (LexicalProjection(repaired),))
+        self.assertTrue(repair.replay(rebuild=True))
+        self.assertEqual(1, len(repaired.search("v3")))
+
+    def test_gate5_shared_artifact_refcount_survives_partial_purge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStore(Path(directory) / "knowledge.db")
+            svc = KnowledgeService(store, LexicalIndex(), Resolver(ACL(frozenset({"reader"}))),
+                                   PlainTextCanonicalizer(), store)
+            svc.ingest(item("one", b"same bytes"), "one-job")
+            svc.ingest(item("two", b"same bytes"), "two-job")
+            artifact = next(Path(store.artifact_root).iterdir())
+            self.assertEqual(2, store.db.execute("SELECT ref_count FROM artifacts").fetchone()[0])
+            svc.tombstone("one", "admin")
+            store.purge(datetime.now(timezone.utc) + timedelta(seconds=1), document_id="one")
+            self.assertTrue(artifact.exists())
+            self.assertEqual(1, store.db.execute("SELECT ref_count FROM artifacts").fetchone()[0])
     def test_gate4_evidence_requires_complete_observed_results(self):
         from kb_pipeline.cli import validate_evidence
         evidence = {
@@ -58,7 +193,7 @@ class Phase4BackendQA(unittest.TestCase):
                            "manifest_sha256": __import__("hashlib").sha256(
                                (ROOT / "tests/test_manifest.json").read_bytes()).hexdigest(),
                            "captured_at": "2026-08-13T00:00:00Z"},
-            "test_count": 60, "suite_version": "0.1.0", "environment": {"python": "3.11"},
+            "test_count": 72, "suite_version": "0.1.0", "environment": {"python": "3.11"},
             "scenario_results": [{"id": "QA-001", "status": "pass"}],
             "backup_bundle_checksums": [{"path": "database.sqlite", "sha256": "a" * 64}],
             "sqlite_integrity": "pass", "restore_validation": "pass",
@@ -416,7 +551,8 @@ class Phase4BackendQA(unittest.TestCase):
     def test_api_requires_identity_and_returns_query_contract(self):
         """API must enforce auth and expose stable item shape."""
         from kb_pipeline.api import create_server
-        server, token = create_server(make_service())
+        # Ephemeral port prevents serial/parallel QA runs from colliding on 8080.
+        server, token = create_server(make_service(), port=0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -443,7 +579,26 @@ class Phase4FrontendQA(unittest.TestCase):
         for expected in ('lang="en"', 'for="query"', 'id="query"', 'aria-live="polite"',
                          'role="status"', 'aria-busy'):
             self.assertIn(expected, self.html + self.js)
-        self.assertNotRegex(self.js, r"\b(embedding|llm|openai|model|generate)\b", re.I)
+        # Answer mode uses same-origin API only; browser owns no provider credentials.
+        self.assertIn("const apiBase = '/v1'", self.js)
+        self.assertIn("${apiBase}/answer", self.js)
+        self.assertNotRegex(self.html, r"<script[^>]+src=[\"']https?://", re.I)
+        for forbidden in ("https://", "openai", "anthropic", "ollama", "apiKey", "api_key",
+                          "client_secret", "Authorization"):
+            self.assertNotIn(forbidden, self.js)
+        for expected in ('id="answer-form"', 'for="answer-query"', 'id="answer-query"',
+                         'id="answer-button"', 'id="answer-status"', 'role="status"',
+                         'id="answer-result"', 'id="answer-citations"'):
+            self.assertIn(expected, self.html)
+        # Normal answers require text; structured visual summaries require validated summary data.
+        self.assertIn("(!answer && !visualSummary)", self.js)
+        self.assertIn("!citations.length", self.js)
+        self.assertIn("payload?.visual_evidence === true", self.js)
+        self.assertIn("renderVisualSummary", self.js)
+        self.assertIn("It is not clinical interpretation.", self.js)
+        self.assertIn("answerCitations.append(item)", self.js)
+        self.assertLess(self.js.index("answerCitations.append(item)"),
+                        self.js.index("answerResult.hidden = false"))
 
     def test_ui_escapes_result_content_and_honestly_disclaims_unsupported_features(self):
         self.assertIn("textContent", self.js)
@@ -455,8 +610,12 @@ class Phase4FrontendQA(unittest.TestCase):
     def test_ui_exposes_local_scope_version_and_supported_degraded_state(self):
         self.assertIn("Scope: local plaintext files", self.html)
         for expected in ("Content version", "Freshness", "Local file", "payload.degraded",
-                         "tombstones"):
+                          "tombstones"):
             self.assertIn(expected, self.js)
+
+    def test_result_scope_uses_current_local_reference_wording(self):
+        self.assertIn("Local reference · currently indexed local documents · API controls access", self.js)
+        self.assertNotIn("Synthetic local", self.js)
 
     def test_ui_withholds_details_on_auth_and_service_failures(self):
         self.assertIn("No file details were shown", self.js)

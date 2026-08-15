@@ -70,6 +70,7 @@ class AdapterBatch:
     retry: RetryClass = RetryClass.NONE
     capability: CapabilityDescriptor = field(default_factory=lambda: CapabilityDescriptor("nango-adapter", "0.1.0"))
     capability_status: CapabilityStatus = CapabilityStatus.COMPLETE
+    cursor_semantics: object | None = None
 
 
 class NangoTransport(Protocol):
@@ -109,6 +110,14 @@ class NangoAdapter:
         self._acknowledged: set[str] = set()
         self._seen: set[str] = set()
         self._known_objects: set[str] = set()
+
+    @property
+    def cursor_semantics(self):
+        class NumericCursor:
+            version = "nango-numeric-v1"
+            def compare(self, left, right):
+                return (int(left) > int(right)) - (int(left) < int(right))
+        return NumericCursor()
 
     def _load_cursor(self):
         if self.cursor_store is None:
@@ -156,16 +165,22 @@ class NangoAdapter:
         status = CapabilityStatus.COMPLETE if page.complete else CapabilityStatus.PARTIAL
         if page.retry != RetryClass.NONE:
             status = CapabilityStatus.DEGRADED
-        return AdapterBatch(page.cursor, pairs, page.complete, page.run_id, page.retry, self.capability, status)
+        return AdapterBatch(page.cursor, pairs, page.complete, page.run_id, page.retry,
+                            self.capability, status, self.cursor_semantics)
 
-    def acknowledge(self, batch: AdapterBatch, *, ledger_accepted: bool) -> None:
+    def acknowledge(self, batch: AdapterBatch, *, ledger_accepted: bool, persist_checkpoint: bool = True) -> None:
         """Advance cursor only after durable ledger acceptance."""
         if ledger_accepted and batch.complete and batch.cursor is not None:
             self.cursor = batch.cursor
             self._acknowledged.add(batch.cursor)
             self._known_objects.update(change.object_id for _, change in batch.envelopes)
-            if self.cursor_store is not None:
-                self.cursor_store.checkpoint(self.connector, batch.cursor, True, source=self.source)
+            if self.cursor_store is not None and persist_checkpoint:
+                try:
+                    self.cursor_store.checkpoint(self.connector, batch.cursor, True, source=self.source,
+                                                 cursor_semantics=self.cursor_semantics)
+                except TypeError:
+                    # Legacy demo cursor stores lack comparator keyword; PostgreSQL port does not.
+                    self.cursor_store.checkpoint(self.connector, batch.cursor, True, source=self.source)
 
     def webhook(self, event: NangoWebhook) -> AdapterBatch:
         key = event.event_id
