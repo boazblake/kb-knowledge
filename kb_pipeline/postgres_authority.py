@@ -6,8 +6,10 @@ contains no workflow engine or provider SDK implementation.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import re
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any, Iterator, cast
 
@@ -16,6 +18,24 @@ from .protocol import CanonicalChange, IdentityNamespace, ObjectKey, RevisionOut
 
 class PostgresUnavailable(RuntimeError):
     """Required PostgreSQL driver or database is unavailable."""
+
+
+def _normalize_fingerprint(value: object) -> str | None:
+    """Normalize PostgreSQL/application fingerprint values without coercion."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        try:
+            return bytes(value).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return None
+
+
+def _fingerprints_match(stored: object, expected: object) -> bool:
+    stored_text = _normalize_fingerprint(stored)
+    expected_text = _normalize_fingerprint(expected)
+    return stored_text is not None and expected_text is not None and stored_text == expected_text
 
 
 def _driver():
@@ -105,6 +125,35 @@ class PostgresAuthorityRepository:
     def accept(self, change: CanonicalChange, *, raw_object_uri: str, content_hash: str,
                audit_event: tuple[str, str, str] | None = None) -> RevisionOutcome:
         """Accept raw link, authority state, idempotency, outbox and audit atomically."""
+        with self.transaction() as conn:
+            return self._accept(conn, change, raw_object_uri=raw_object_uri,
+                                content_hash=content_hash, audit_event=audit_event)
+
+    def accept_and_checkpoint(self, change: CanonicalChange, *, raw_object_uri: str,
+                              content_hash: str, checkpoint: tuple[IdentityNamespace, str, bool] | None = None,
+                              audit_event: tuple[str, str, str] | None = None) -> RevisionOutcome:
+        """Commit change and cursor together; caller advances in-memory cursor after return."""
+        with self.transaction() as conn:
+            outcome = self._accept(conn, change, raw_object_uri=raw_object_uri,
+                                   content_hash=content_hash, audit_event=audit_event)
+            if checkpoint and outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE):
+                source, value, complete = checkpoint
+                current = conn.execute("""SELECT value FROM ingestion_checkpoints
+                    WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s
+                    FOR UPDATE""", (source.provider, source.tenant, source.connector, source.source_instance)).fetchone()
+                if current and str(value) < str(current[0]):
+                    raise ValueError("checkpoint cannot move backwards")
+                conn.execute("""INSERT INTO ingestion_checkpoints
+                    (provider,tenant,connector,source_instance,value,complete)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (provider,tenant,connector,source_instance)
+                    DO UPDATE SET value=EXCLUDED.value, complete=EXCLUDED.complete, updated_at=now()""",
+                    (source.provider, source.tenant, source.connector, source.source_instance,
+                     value, complete))
+            return outcome
+
+    def _accept(self, conn, change: CanonicalChange, *, raw_object_uri: str,
+                content_hash: str, audit_event: tuple[str, str, str] | None = None) -> RevisionOutcome:
         source = change.source
         key = self.object_key(source, change.object_id)
         object_key = ObjectKey.from_change(change).encoded()
@@ -114,40 +163,51 @@ class PostgresAuthorityRepository:
             "text": value.text, "source_uri": value.source.source_uri,
             "metadata": dict(value.metadata),
         } if hasattr(value, "document_id") else dict(value))
-        with self.transaction() as conn:
-            fingerprint = json.dumps({"object_key": object_key, "revision": change.revision,
+        fingerprint = json.dumps({"object_key": object_key, "revision": change.revision,
                                       "operation": change.operation.value, "payload": payload,
                                       "content_hash": content_hash}, sort_keys=True, default=str)
-            duplicate = conn.execute("SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
-            if duplicate:
-                return RevisionOutcome.DUPLICATE if duplicate[0] == fingerprint else RevisionOutcome.CONFLICT
-            row = conn.execute("""SELECT revision FROM ingestion_authority
+        duplicate = conn.execute("SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
+        if duplicate:
+            return RevisionOutcome.DUPLICATE if _fingerprints_match(duplicate[0], fingerprint) else RevisionOutcome.CONFLICT
+        row = conn.execute("""SELECT revision FROM ingestion_authority
                 WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s AND object_id=%s
                 FOR UPDATE""", key).fetchone()
-            current = row[0] if row else 0
-            if change.revision <= current:
-                return RevisionOutcome.STALE
-            if change.revision > current + 1:
-                conn.execute("""INSERT INTO ingestion_gaps
+        current = row[0] if row else 0
+        if change.revision <= current:
+            return RevisionOutcome.STALE
+        if change.revision > current + 1:
+            conn.execute("""INSERT INTO ingestion_gaps
                     (object_key,expected_revision,received_revision,idempotency_key,payload)
                     VALUES (%s,%s,%s,%s,%s) ON CONFLICT (idempotency_key) DO NOTHING""",
                              (object_key, current + 1, change.revision, change.idempotency_key,
                               json.dumps(payload)))
-                return RevisionOutcome.GAP
-            conn.execute("""INSERT INTO ingestion_authority
+            return RevisionOutcome.GAP
+        conn.execute("""INSERT INTO ingestion_authority
                 (provider,tenant,connector,source_instance,object_id,revision,operation,payload,raw_object_uri,content_hash,observed_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                         (*key, change.revision, change.operation.value, json.dumps(payload), raw_object_uri,
-                          content_hash, change.occurred_at))
-            conn.execute("INSERT INTO ingestion_idempotency(idempotency_key,object_key,revision,fingerprint) VALUES (%s,%s,%s,%s)",
-                         (change.idempotency_key, object_key, change.revision, fingerprint))
-            conn.execute("INSERT INTO ingestion_outbox(idempotency_key,object_key,tenant,workload,payload) VALUES (%s,%s,%s,%s,%s)",
-                         (change.idempotency_key, object_key, source.tenant, source.connector, json.dumps(payload)))
-            if audit_event:
-                event_id, action, actor = audit_event
-                conn.execute("INSERT INTO ingestion_audit(event_id,action,actor,target,tenant) VALUES (%s,%s,%s,%s,%s)",
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (provider,tenant,connector,source_instance,object_id)
+                DO UPDATE SET revision=EXCLUDED.revision, operation=EXCLUDED.operation,
+                  payload=EXCLUDED.payload, raw_object_uri=EXCLUDED.raw_object_uri,
+                  content_hash=EXCLUDED.content_hash, observed_at=EXCLUDED.observed_at,
+                  updated_at=now()""",
+                  (*key, change.revision, change.operation.value, json.dumps(payload), raw_object_uri,
+                   content_hash, change.occurred_at))
+        conn.execute("INSERT INTO ingestion_idempotency(idempotency_key,object_key,revision,fingerprint) VALUES (%s,%s,%s,%s)",
+                          (change.idempotency_key, object_key, change.revision, fingerprint))
+        conn.execute("INSERT INTO ingestion_outbox(idempotency_key,object_key,tenant,workload,payload) VALUES (%s,%s,%s,%s,%s)",
+                          (change.idempotency_key, object_key, source.tenant, source.connector, json.dumps(payload)))
+        if audit_event:
+            event_id, action, actor = audit_event
+            conn.execute("INSERT INTO ingestion_audit(event_id,action,actor,target,tenant) VALUES (%s,%s,%s,%s,%s)",
                              (event_id, action, actor, change.object_id, source.tenant))
         return RevisionOutcome.ACCEPTED
+
+    def raw_reference(self, source: IdentityNamespace, object_id: str):
+        """Return authoritative raw URI/hash/revision, scoped by full object namespace."""
+        with self.pool.connection() as conn:
+            return conn.execute("""SELECT raw_object_uri,content_hash,revision,operation
+                FROM ingestion_authority WHERE provider=%s AND tenant=%s AND connector=%s
+                AND source_instance=%s AND object_id=%s""", self.object_key(source, object_id)).fetchone()
 
     def claim_outbox(self, worker: str, *, tenant: str, workload: str, limit: int = 100, lease_seconds: int = 60) -> tuple[dict[str, Any], ...]:
         """Claim pending deliveries; lease expiry makes crash recovery safe."""
@@ -218,6 +278,60 @@ class PostgresIngestionService:
             self.telemetry.counter(f"ingestion.{outcome.value}")
         return outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)
 
+    def ingest_batch(self, batch, job_id: str) -> bool:
+        """Process synthetic connector batch, then durably checkpoint its cursor.
+
+        Cursor is written in same PostgreSQL transaction as final acceptance. The
+        adapter must update its in-memory cursor only after this method returns.
+        """
+        accepted = True
+        for raw, change in batch.envelopes:
+            accepted = self.ingest_change(raw, change, job_id) and accepted
+        if not accepted or not batch.complete or batch.cursor is None:
+            return accepted
+        if batch.envelopes:
+            _, last = batch.envelopes[-1]
+            # Replaying final idempotency key makes checkpoint commit share a
+            # durable transaction without creating another outbox row.
+            source = last.source
+            raw = batch.envelopes[-1][0]
+            from .production_adapters import ArtifactContext
+            context = ArtifactContext(source.provider, source.tenant, source.connector,
+                                      source.source_instance, last.object_id, str(last.revision))
+            uri = raw.source.source_uri
+            if self.raw_storage is not None:
+                uri = f"s3://{self.raw_storage.bucket}/{context.key(self.raw_storage.prefix)}"
+            outcome = self.repository.accept_and_checkpoint(
+                last, raw_object_uri=uri, content_hash=raw.source.content_hash,
+                checkpoint=(source, batch.cursor, True),
+                audit_event=(last.idempotency_key, last.operation.value, job_id))
+            return outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)
+        self.repository.checkpoint(self.connector.connector if hasattr(self.connector, "connector") else "nango",
+                                   batch.cursor, True)
+        return True
+
+    def read_raw(self, source, object_id: str) -> bytes:
+        """Read only authority-referenced ciphertext and verify plaintext hash."""
+        if self.raw_storage is None:
+            raise ValueError("encrypted raw storage required")
+        reference = self.repository.raw_reference(source, object_id)
+        if not reference:
+            raise LookupError("authoritative raw object unavailable")
+        uri, content_hash, revision, _operation = reference
+        parsed = urlsplit(uri)
+        if parsed.scheme != "s3" or parsed.netloc != getattr(self.raw_storage, "bucket", parsed.netloc):
+            raise ValueError("raw object store mismatch")
+        from .production_adapters import ArtifactContext
+        context = ArtifactContext(source.provider, source.tenant, source.connector,
+                                  source.source_instance, object_id, str(revision))
+        key = context.key(self.raw_storage.prefix)
+        if parsed.path.lstrip("/") != key:
+            raise ValueError("raw object reference/context mismatch")
+        payload = self.raw_storage.get(key, context=context)
+        if hashlib.sha256(payload).hexdigest() != content_hash:
+            raise ValueError("authoritative raw content hash mismatch")
+        return payload
+
     def ingest(self, item, job_id: str) -> bool:
         from .adapters import source_version
         from .domain import ACL, RawRecord
@@ -235,7 +349,14 @@ class PostgresIngestionService:
             item.provider, item.tenant, connector=item.connector,
             source_instance=item.source_instance), 1, Operation.UPSERT, document,
             event_id, ProvenanceLink("raw", source.source_id), PermissionState(acl))
-        outcome = self.repository.accept(change, raw_object_uri=source.source_uri,
+        raw_uri = source.source_uri
+        if self.raw_storage is not None:
+            from .production_adapters import ArtifactContext
+            artifact_context = ArtifactContext(item.provider, item.tenant, item.connector,
+                                               item.source_instance, item.external_id, str(change.revision))
+            raw_uri = self.raw_storage.put(artifact_context.key(getattr(self.raw_storage, "prefix", "raw/")), item.payload,
+                                           metadata={"tenant": item.tenant}, context=artifact_context)
+        outcome = self.repository.accept(change, raw_object_uri=raw_uri,
                                          content_hash=source.content_hash,
                                          audit_event=(event_id, "ingest", job_id))
         return outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)

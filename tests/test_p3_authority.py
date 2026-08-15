@@ -5,11 +5,21 @@ from pathlib import Path
 from uuid import uuid4
 
 from kb_pipeline.nango_adapter import FakeNangoTransport, NangoAdapter, NangoPoll
-from kb_pipeline.postgres_authority import MigrationRunner, PostgresAuthorityRepository, PostgresUnavailable
+from kb_pipeline.postgres_authority import (MigrationRunner, PostgresAuthorityRepository,
+                                            PostgresUnavailable, _fingerprints_match,
+                                            _normalize_fingerprint)
 from kb_pipeline.protocol import IdentityNamespace
 
 
 class P3AuthorityUnitTests(unittest.TestCase):
+    def test_fingerprint_normalization_is_strict(self):
+        fingerprint = '{"content_hash":"hash"}'
+        self.assertEqual(fingerprint, _normalize_fingerprint(fingerprint.encode("utf-8")))
+        self.assertEqual(fingerprint, _normalize_fingerprint(memoryview(fingerprint.encode("utf-8"))))
+        self.assertTrue(_fingerprints_match(fingerprint.encode("utf-8"), fingerprint))
+        self.assertFalse(_fingerprints_match(b"not-the-fingerprint", fingerprint))
+        self.assertIsNone(_normalize_fingerprint(b"\xff"))
+
     def test_namespace_checkpoint_key_includes_tenant_and_source_instance(self):
         source = IdentityNamespace("github", "tenant-a", connector="nango", source_instance="conn-1")
         self.assertEqual(("github", "tenant-a", "nango", "conn-1", "doc"),
@@ -75,6 +85,49 @@ class P3AuthorityUnitTests(unittest.TestCase):
             repo.open()
             self.assertEqual("accepted", repo.accept(change(1, f"{suffix}-1"), raw_object_uri="nango://obj", content_hash="hash").value)
             self.assertEqual("duplicate", repo.accept(change(1, f"{suffix}-1"), raw_object_uri="nango://obj", content_hash="hash").value)
+            with repo.transaction() as conn:
+                stored_text = conn.execute(
+                    "SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s",
+                    (f"{suffix}-1",),
+                ).fetchone()[0]
+                stored_bytes = conn.execute(
+                    "SELECT convert_to(fingerprint, 'UTF8') FROM ingestion_idempotency "
+                    "WHERE idempotency_key=%s",
+                    (f"{suffix}-1",),
+                ).fetchone()[0]
+            self.assertIsInstance(stored_text, str)
+            self.assertIsInstance(stored_bytes, bytes)
+            self.assertTrue(_fingerprints_match(stored_bytes, stored_text))
+
+            variants = ("tenant", "object", "revision", "content", "operation")
+            for name in variants:
+                scenario_source = source.__class__(source.provider, source.tenant, connector=f"{source.connector}-{name}",
+                                                   source_instance=f"{source.source_instance}-{name}")
+                scenario_object = f"{object_id}-{name}"
+                scenario_document = CanonicalDocument(
+                    scenario_object, SourceVersion(scenario_object, "1", "nango://obj", observed, "hash"),
+                    "title", "body", ACL(frozenset({"reader"})))
+                key = f"{suffix}-{name}"
+                baseline = CanonicalChange(scenario_object, scenario_source, 1, Operation.UPSERT, scenario_document, key,
+                                           ProvenanceLink("test", key), PermissionState(scenario_document.acl), occurred_at=observed)
+                self.assertEqual("accepted", repo.accept(baseline, raw_object_uri="nango://obj", content_hash="hash").value)
+                variant_source, variant_object, revision, operation, value, content_hash = scenario_source, scenario_object, 1, Operation.UPSERT, scenario_document, "hash"
+                if name == "tenant":
+                    variant_source = source.__class__(source.provider, f"tenant-{suffix}", connector=source.connector,
+                                                      source_instance=scenario_source.source_instance)
+                elif name == "object":
+                    variant_object = f"other-{suffix}-{name}"
+                elif name == "revision":
+                    revision = 2
+                elif name == "content":
+                    value = CanonicalDocument(scenario_object, scenario_document.source, scenario_document.title, "changed", scenario_document.acl)
+                    content_hash = "changed-hash"
+                elif name == "operation":
+                    operation, value = Operation.DELETE, None
+                variant = CanonicalChange(variant_object, variant_source, revision, operation, value, key,
+                                          ProvenanceLink("test", key), PermissionState(scenario_document.acl), occurred_at=observed)
+                self.assertEqual("conflict", repo.accept(variant, raw_object_uri="nango://obj", content_hash=content_hash).value, name)
+
             self.assertEqual("gap", repo.accept(change(3, f"{suffix}-3"), raw_object_uri="nango://obj", content_hash="hash").value)
             claimed = repo.claim_outbox("test", tenant=tenant, workload=workload)
             self.assertEqual(1, len(claimed))
