@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, sqlite3, uuid
+import json, sqlite3, uuid, hashlib
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,20 +18,29 @@ def _json(v): return json.dumps(v, sort_keys=True)
 
 class SQLiteStore:
     """Single-writer durable store. SQLite transaction is consistency boundary."""
-    def __init__(self, path: Path | str = ":memory:", artifact_root: Path | None = None):
+    def __init__(self, path: Path | str = ":memory:", artifact_root: Path | None = None, payload_provider=None):
         self.path = str(path); self.artifact_root = artifact_root or Path(str(path) + ".raw")
+        self.payload_provider = payload_provider
         self.artifact_root.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row; self.db.execute("PRAGMA journal_mode=WAL"); self.db.execute("PRAGMA foreign_keys=ON")
+        self.writer_lock = database_quiesce_lock(self.path)
+        self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=30.0)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA busy_timeout=30000")
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=FULL")
+        self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript("""
         CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS raw_records(source_id TEXT, version TEXT, uri TEXT, observed_at TEXT, content_hash TEXT, artifact TEXT, metadata TEXT, PRIMARY KEY(source_id,version));
+        CREATE TABLE IF NOT EXISTS artifacts(content_hash TEXT PRIMARY KEY, path TEXT NOT NULL, ref_count INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS documents(document_id TEXT PRIMARY KEY, source_id TEXT, version TEXT, uri TEXT, observed_at TEXT, title TEXT, text TEXT, readers TEXT, admins TEXT, metadata TEXT, tombstoned INTEGER DEFAULT 0, deleted_at TEXT);
         CREATE TABLE IF NOT EXISTS audit(event_id TEXT PRIMARY KEY, action TEXT, actor TEXT, target TEXT, at TEXT);
         CREATE TABLE IF NOT EXISTS checkpoints(connector TEXT PRIMARY KEY, value TEXT, complete INTEGER);
         CREATE TABLE IF NOT EXISTS tombstones(document_id TEXT PRIMARY KEY, deleted_at TEXT);
         CREATE TABLE IF NOT EXISTS revocations(source_id TEXT PRIMARY KEY, suppressed_until TEXT);
         CREATE TABLE IF NOT EXISTS purge_status(purge_id TEXT PRIMARY KEY, scope TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL, candidates INTEGER NOT NULL DEFAULT 0, purged INTEGER NOT NULL DEFAULT 0, reason TEXT, started_at TEXT NOT NULL, completed_at TEXT);
+        CREATE TABLE IF NOT EXISTS image_extractions(source_id TEXT, version TEXT, content_hash TEXT NOT NULL, model TEXT, schema_version TEXT NOT NULL, prompt_version TEXT NOT NULL, status TEXT NOT NULL, observation TEXT, error TEXT, created_at TEXT NOT NULL, PRIMARY KEY(source_id,version));
+        CREATE TABLE IF NOT EXISTS embeddings(document_id TEXT, source_id TEXT NOT NULL, version TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL, input_hash TEXT NOT NULL, vector BLOB NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(document_id,model));
         CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(document_id UNINDEXED, title, text);
         INSERT OR IGNORE INTO schema_migrations VALUES (1);
         """); self.db.commit()
@@ -40,33 +49,108 @@ class SQLiteStore:
         acl=ACL(readers, frozenset(json.loads(r['admins'] or '[]')))
         return CanonicalDocument(r['document_id'], SourceVersion(r['source_id'],r['version'],r['uri'],_dt(r['observed_at']) or datetime.now(timezone.utc),r['version']),r['title'],r['text'],acl,json.loads(r['metadata'] or '{}'),bool(r['tombstoned']),_dt(r['deleted_at']))
     def put(self, doc, allow_older=False):
-        if self.db.execute("SELECT 1 FROM tombstones WHERE document_id=?",(doc.document_id,)).fetchone(): return False
-        old=self.db.execute("SELECT * FROM documents WHERE document_id=?",(doc.document_id,)).fetchone()
-        if old and (old['tombstoned'] or (not allow_older and old['observed_at'] and doc.source.observed_at < _dt(old['observed_at']))): return False
-        self.db.execute("INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",(doc.document_id,doc.source.source_id,doc.source.version,doc.source.source_uri,doc.source.observed_at.isoformat(),doc.title,doc.text,None if doc.acl.readers is None else _json(list(doc.acl.readers)),_json(list(doc.acl.admins)),_json(dict(doc.metadata)),int(doc.tombstoned),doc.deleted_at.isoformat() if doc.deleted_at else None))
-        self.db.execute("DELETE FROM documents_fts WHERE document_id=?",(doc.document_id,));
-        if not doc.tombstoned and doc.acl.readers is not None: self.db.execute("INSERT INTO documents_fts VALUES (?,?,?)",(doc.document_id,doc.title,doc.text))
-        self.db.commit(); return True
+        with self.writer_lock:
+            if self.db.execute("SELECT 1 FROM tombstones WHERE document_id=?",(doc.document_id,)).fetchone(): return False
+            old=self.db.execute("SELECT * FROM documents WHERE document_id=?",(doc.document_id,)).fetchone()
+            if old and (old['tombstoned'] or (not allow_older and old['observed_at'] and doc.source.observed_at < _dt(old['observed_at']))): return False
+            self.db.execute("INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",(doc.document_id,doc.source.source_id,doc.source.version,doc.source.source_uri,doc.source.observed_at.isoformat(),doc.title,doc.text,None if doc.acl.readers is None else _json(list(doc.acl.readers)),_json(list(doc.acl.admins)),_json(dict(doc.metadata)),int(doc.tombstoned),doc.deleted_at.isoformat() if doc.deleted_at else None))
+            from .embedding import input_hash
+            self.db.execute("DELETE FROM embeddings WHERE document_id=? AND (version<>? OR input_hash<>?)", (doc.document_id, doc.source.version, input_hash(doc.title, doc.text)))
+            self.db.execute("DELETE FROM documents_fts WHERE document_id=?",(doc.document_id,));
+            if not doc.tombstoned and doc.acl.readers is not None: self.db.execute("INSERT INTO documents_fts VALUES (?,?,?)",(doc.document_id,doc.title,doc.text))
+            self.db.commit(); return True
     def save_raw(self, record):
-        with database_quiesce_lock(self.path):
-            p=self.artifact_root / record.source.content_hash
-            if not p.exists(): p.write_bytes(record.payload)
-            self.db.execute("INSERT OR IGNORE INTO raw_records VALUES (?,?,?,?,?,?,?)",(record.source.source_id,record.source.version,record.source.source_uri,record.source.observed_at.isoformat(),record.source.content_hash,str(p),_json(dict(record.metadata)))); self.db.commit()
+        with self.writer_lock:
+            with self.db: self._save_raw_sql(self.db, record)
+
+    def save_image_extraction(self, document_id, source_id, version, content_hash, model,
+                              schema_version, prompt_version, status, observation=None, error=None):
+        """Persist extraction provenance and publish text only for matching current source."""
+        with self.writer_lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO image_extractions VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (source_id, version, content_hash, model, schema_version, prompt_version,
+                             status, _json(observation) if observation is not None else None, error,
+                             datetime.now(timezone.utc).isoformat()))
+            if status != "success": return False
+            current = self.db.execute("SELECT version,source_id,title,metadata FROM documents WHERE document_id=?", (document_id,)).fetchone()
+            if not current or current["version"] != version or current["source_id"] != source_id:
+                return False
+            metadata = json.loads(current["metadata"] or "{}")
+            metadata["image_extraction"] = {"status": status, "model": model,
+                                              "schema_version": schema_version, "prompt_version": prompt_version,
+                                              "content_hash": content_hash}
+            from .vision import observation_text
+            if observation is None: raise ValueError("successful extraction requires observation")
+            text = observation_text(observation)
+            self.db.execute("UPDATE documents SET text=?,metadata=? WHERE document_id=?", (text, _json(metadata), document_id))
+            self.db.execute("DELETE FROM embeddings WHERE document_id=?", (document_id,))
+            self.db.execute("DELETE FROM documents_fts WHERE document_id=?", (document_id,))
+            self.db.execute("INSERT INTO documents_fts VALUES (?,?,?)", (document_id, current["title"], text))
+            return True
+
+    def image_extraction(self, source_id, version):
+        row = self.db.execute("SELECT * FROM image_extractions WHERE source_id=? AND version=?", (source_id, version)).fetchone()
+        return dict(row) if row else None
+
+    def save_embedding(self, doc, model, vector, text_hash):
+        from .embedding import input_hash, pack_vector
+        blob = pack_vector(vector)
+        with self.writer_lock, self.db:
+            current = self.db.execute("SELECT version,title,text FROM documents WHERE document_id=? AND tombstoned=0", (doc.document_id,)).fetchone()
+            if not current or current["version"] != doc.source.version or text_hash != input_hash(current["title"], current["text"]):
+                return False
+            self.db.execute("INSERT OR REPLACE INTO embeddings VALUES (?,?,?,?,?,?,?,?)",
+                            (doc.document_id, doc.source.source_id, doc.source.version, model, len(vector),
+                             text_hash, blob, datetime.now(timezone.utc).isoformat()))
+            return True
+
+    def embedding_rows(self, model=None):
+        if model is None:
+            return tuple(dict(row) for row in self.db.execute("SELECT * FROM embeddings"))
+        return tuple(dict(row) for row in self.db.execute("SELECT * FROM embeddings WHERE model=?", (model,)))
+
+    def _save_raw_sql(self, db, record):
+        p = self.artifact_root / record.source.content_hash
+        if not p.exists():
+            payload = record.payload
+            if self.payload_provider:
+                context = {"object_key": record.source.source_id, "tenant": "default", "purpose": "raw-artifact"}
+                envelope = self.payload_provider.encrypt(payload, key_id=self.payload_provider.current_key_id, context=context)
+                payload = b"KBE1" + json.dumps({"key_id": envelope.key_id, "algorithm": envelope.algorithm, "nonce": envelope.nonce.hex(), "tag": envelope.tag.hex(), "context": envelope.context.hex()}).encode() + b"\n" + envelope.ciphertext
+            p.write_bytes(payload)
+        inserted = db.execute("INSERT OR IGNORE INTO raw_records VALUES (?,?,?,?,?,?,?)", (record.source.source_id, record.source.version, record.source.source_uri, record.source.observed_at.isoformat(), record.source.content_hash, str(p), _json(dict(record.metadata)))).rowcount
+        if inserted:
+            db.execute("INSERT INTO artifacts(content_hash,path,ref_count) VALUES (?,?,1) ON CONFLICT(content_hash) DO UPDATE SET ref_count=ref_count+1", (record.source.content_hash, str(p)))
     def save_revocation(self, source_id, suppressed_until):
-        self.db.execute("INSERT OR REPLACE INTO revocations VALUES (?,?)", (source_id, suppressed_until.isoformat())); self.db.commit()
+        with self.writer_lock:
+            self.db.execute("INSERT OR REPLACE INTO revocations VALUES (?,?)", (source_id, suppressed_until.isoformat())); self.db.commit()
     def all_revocations(self):
-        return {r["source_id"]: _dt(r["suppressed_until"]) for r in self.db.execute("SELECT * FROM revocations")}
+        with self.writer_lock: return {r["source_id"]: _dt(r["suppressed_until"]) for r in self.db.execute("SELECT * FROM revocations")}
     def validate_artifact_links(self):
-        for row in self.db.execute("SELECT artifact FROM raw_records"):
-            path = Path(row["artifact"])
-            if not path.is_file():
-                raise ValueError(f"missing raw artifact: {path}")
-        return True
+        with self.writer_lock:
+            for row in self.db.execute("SELECT artifact,content_hash,source_id FROM raw_records"):
+                path = Path(row["artifact"])
+                if not path.is_file(): raise ValueError(f"missing raw artifact: {path}")
+                payload = path.read_bytes()
+                if payload.startswith(b"KBE1"):
+                    if self.payload_provider is None: raise ValueError(f"encrypted artifact provider unavailable: {path}")
+                    from .protocol import PayloadEnvelope
+                    header, ciphertext = payload.split(b"\n", 1)
+                    details = json.loads(header[4:])
+                    envelope = PayloadEnvelope(details["key_id"], details["algorithm"], ciphertext,
+                                               bytes.fromhex(details["nonce"]), bytes.fromhex(details["tag"]),
+                                               bytes.fromhex(details["context"]))
+                    payload = self.payload_provider.decrypt(envelope, context={"object_key": row["source_id"], "tenant": "default", "purpose": "raw-artifact"})
+                if hashlib.sha256(payload).hexdigest() != row["content_hash"]:
+                    raise ValueError(f"raw artifact hash mismatch: {path}")
+            return True
     def get(self, id):
-        r=self.db.execute("SELECT * FROM documents WHERE document_id=?",(id,)).fetchone(); return self._doc(r) if r else None
-    def all(self): return tuple(self._doc(r) for r in self.db.execute("SELECT * FROM documents"))
+        with self.writer_lock:
+            r=self.db.execute("SELECT * FROM documents WHERE document_id=?",(id,)).fetchone(); return self._doc(r) if r else None
+    def all(self):
+        with self.writer_lock: return tuple(self._doc(r) for r in self.db.execute("SELECT * FROM documents"))
     def tombstone(self,id):
-        at=datetime.now(timezone.utc).isoformat(); self.db.execute("INSERT OR IGNORE INTO tombstones VALUES (?,?)",(id,at)); self.db.execute("UPDATE documents SET tombstoned=1,deleted_at=? WHERE document_id=?",(at,id)); self.db.execute("DELETE FROM documents_fts WHERE document_id=?",(id,)); self.db.commit()
+        at=datetime.now(timezone.utc).isoformat(); self.db.execute("INSERT OR IGNORE INTO tombstones VALUES (?,?)",(id,at)); self.db.execute("UPDATE documents SET tombstoned=1,deleted_at=? WHERE document_id=?",(at,id)); self.db.execute("DELETE FROM documents_fts WHERE document_id=?",(id,)); self.db.execute("DELETE FROM embeddings WHERE document_id=?", (id,)); self.db.commit()
     def begin_purge(self, scope, target, candidates=0):
         purge_id = uuid.uuid4().hex
         at = datetime.now(timezone.utc).isoformat()
@@ -88,29 +172,43 @@ class SQLiteStore:
         ids=[r["document_id"] for r in rows]
         source_ids={r["source_id"] for r in rows}
         artifacts=[r["artifact"] for r in self.db.execute("SELECT artifact FROM raw_records WHERE source_id IN (%s)" % ",".join("?" * len(source_ids)), tuple(source_ids))] if source_ids else []
-        self.db.executemany("DELETE FROM documents_fts WHERE document_id=?", [(i,) for i in ids])
-        self.db.executemany("DELETE FROM documents WHERE document_id=?", [(i,) for i in ids])
-        if source_ids:
+        with self.writer_lock, self.db:
+            self.db.executemany("DELETE FROM documents_fts WHERE document_id=?", [(i,) for i in ids])
+            self.db.executemany("DELETE FROM documents WHERE document_id=?", [(i,) for i in ids])
             # Remove raw row only when no surviving document references source.
-            for source in source_ids:
-                still = self.db.execute("SELECT 1 FROM documents WHERE source_id=?", (source,)).fetchone()
-                if not still: self.db.execute("DELETE FROM raw_records WHERE source_id=?", (source,))
-        self.db.commit()
-        for artifact in artifacts:
-            path=Path(artifact)
-            if path.exists() and not self.db.execute("SELECT 1 FROM raw_records WHERE artifact=?", (artifact,)).fetchone(): path.unlink()
+            if source_ids:
+                for source in source_ids:
+                    still = self.db.execute("SELECT 1 FROM documents WHERE source_id=?", (source,)).fetchone()
+                    if not still:
+                        hashes = self.db.execute("SELECT content_hash FROM raw_records WHERE source_id=?", (source,)).fetchall()
+                        self.db.execute("DELETE FROM image_extractions WHERE source_id=?", (source,))
+                        self.db.execute("DELETE FROM embeddings WHERE source_id=?", (source,))
+                        self.db.execute("DELETE FROM raw_records WHERE source_id=?", (source,))
+                        for row in hashes:
+                            self.db.execute("UPDATE artifacts SET ref_count=ref_count-1 WHERE content_hash=?", (row[0],))
+                self.db.execute("DELETE FROM artifacts WHERE ref_count<=0")
+            for artifact in artifacts:
+                path=Path(artifact)
+                if path.exists() and not self.db.execute("SELECT 1 FROM artifacts WHERE path=?", (artifact,)).fetchone(): path.unlink()
         if purge_id: self.finish_purge(purge_id, len(ids))
         return len(ids)
     def search(self,q):
-        try: rows=self.db.execute("SELECT d.* FROM documents_fts f JOIN documents d USING(document_id) WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts)",(q,)).fetchall()
-        except sqlite3.OperationalError: return []
+        with self.writer_lock:
+            try: rows=self.db.execute("SELECT d.* FROM documents_fts f JOIN documents d USING(document_id) WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts)",(q,)).fetchall()
+            except sqlite3.OperationalError: return []
         return [SearchHit(r['document_id'],r['title'],r['text'][:240],r['uri'],r['version']) for r in rows]
     def rebuild_index(self):
-        self.db.execute("DELETE FROM documents_fts"); self.db.execute("INSERT INTO documents_fts SELECT document_id,title,text FROM documents WHERE tombstoned=0 AND readers IS NOT NULL"); self.db.commit()
-    def append(self,e): self.db.execute("INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?)",(e.event_id,e.action,e.actor,e.target,e.at.isoformat())); self.db.commit()
-    def all_audit(self): return tuple(AuditEvent(r['event_id'],r['action'],r['actor'],r['target'],_dt(r['at']) or datetime.now(timezone.utc)) for r in self.db.execute("SELECT * FROM audit"))
-    def checkpoint(self, connector, value, complete): self.db.execute("INSERT OR REPLACE INTO checkpoints VALUES (?,?,?)",(connector,value,int(complete))); self.db.commit()
-    def status(self): return {"documents":self.db.execute("SELECT count(*) FROM documents WHERE tombstoned=0").fetchone()[0],"tombstones":self.db.execute("SELECT count(*) FROM tombstones").fetchone()[0],"raw_records":self.db.execute("SELECT count(*) FROM raw_records").fetchone()[0],"wal":True}
+        with self.writer_lock:
+            self.db.execute("DELETE FROM documents_fts"); self.db.execute("INSERT INTO documents_fts SELECT document_id,title,text FROM documents WHERE tombstoned=0 AND readers IS NOT NULL"); self.db.commit()
+    def append(self,e):
+        with self.writer_lock: self.db.execute("INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?)",(e.event_id,e.action,e.actor,e.target,e.at.isoformat())); self.db.commit()
+    def all_audit(self):
+        with self.writer_lock: return tuple(AuditEvent(r['event_id'],r['action'],r['actor'],r['target'],_dt(r['at']) or datetime.now(timezone.utc)) for r in self.db.execute("SELECT * FROM audit"))
+    def checkpoint(self, connector, value, complete):
+        with self.writer_lock: self.db.execute("INSERT OR REPLACE INTO checkpoints VALUES (?,?,?)",(connector,value,int(complete))); self.db.commit()
+    def status(self):
+        with self.writer_lock:
+            return {"documents":self.db.execute("SELECT count(*) FROM documents WHERE tombstoned=0").fetchone()[0],"tombstones":self.db.execute("SELECT count(*) FROM tombstones").fetchone()[0],"raw_records":self.db.execute("SELECT count(*) FROM raw_records").fetchone()[0],"wal":self.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal", "synchronous": self.db.execute("PRAGMA synchronous").fetchone()[0], "foreign_keys": self.db.execute("PRAGMA foreign_keys").fetchone()[0], "busy_timeout_ms": self.db.execute("PRAGMA busy_timeout").fetchone()[0]}
 
 MemoryDocumentStore = SQLiteStore
 class MemoryAuditStore:

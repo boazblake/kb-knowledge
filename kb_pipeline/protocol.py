@@ -88,6 +88,7 @@ class PayloadEnvelope:
     nonce: bytes
     tag: bytes
     context: bytes = b""
+    wrapped_key: bytes = b""
 
 
 class LocalTestKeyProvider:
