@@ -40,8 +40,8 @@
   $('#next-step').textContent = S.next;
   $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
   const svgNS = 'http://www.w3.org/2000/svg';
-  const points = (x,y) => Array.from({length:6},(_,i) => { const a=Math.PI/3*i-Math.PI/6; return `${x+66*Math.cos(a)},${y+47*Math.sin(a)}`; }).join('');
-  const positions = [[70,180],[205,180],[340,180],[475,180],[610,180],[745,180],[880,180],[1015,180],[1080,300]];
+  const points = (x,y) => Array.from({length:6},(_,i) => { const a=Math.PI/3*i-Math.PI/6; return `${x+66*Math.cos(a)},${y+47*Math.sin(a)}`; }).join(' ');
+  const positions = [[75,180],[195,180],[315,180],[435,180],[555,180],[675,180],[795,180],[915,180],[1025,180]];
   const arrows=$('#flow-arrows'), nodes=$('#flow-nodes');
   positions.slice(0,components.length-1).forEach((p,i) => { const l=document.createElementNS(svgNS,'line'); l.setAttribute('x1',p[0]+68); l.setAttribute('y1',p[1]); l.setAttribute('x2',positions[i+1][0]-68); l.setAttribute('y2',positions[i+1][1]); l.setAttribute('class','flow-arrow'); arrows.append(l); });
   const detail = (item,target) => { target.innerHTML=`<h3>${esc(item[1])}</h3><dl><div><dt>Status</dt><dd>${esc(item[2].toUpperCase())}</dd></div><div><dt>What exists</dt><dd>${esc(item[3])}</dd></div><div><dt>Remaining work</dt><dd>${esc(item[4])}</dd></div><div><dt>Evidence boundary</dt><dd>Prototype/reference or local validation; not live production.</dd></div></dl>`; };
