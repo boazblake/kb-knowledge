@@ -24,7 +24,7 @@ function render(payload) {
       const row = document.createElement('tr'); row.innerHTML = `<th scope="row">${building.path}</th><td>${Number.isFinite(building.loc) ? building.loc.toLocaleString() : 'Unavailable'}</td><td>${district.language}</td><td>${safe(building.tests)}</td><td><span class="status-chip ${currentStatus.toLowerCase()}">${currentStatus}</span></td><td>${safe(building.production)}</td>`; table.append(row);
     }); zone.append(block); map.append(zone);
   });
-  const stamp = safe(payload.generatedAt); freshness.textContent = `Snapshot generated ${stamp}. ${safe(payload.freshness)}. ${safe(payload.note)}`; status.textContent = `Map ready. ${S.decision} · remediation ${S.commits.remediation}; ${S.remediationStage}; ${S.evidenceScope}. Prior test run ${S.evidenceRun.runDate}.`; status.className = 'inline-status warning';
+  const stamp = safe(payload.generatedAt); freshness.textContent = `Snapshot generated ${stamp}. ${safe(payload.freshness)}. ${safe(payload.note)}`; status.textContent = `Map ready. ${S.decision} · core ${S.commits.implementation}; ${S.evidenceScope}. Prior recorded test run ${S.evidenceRun.runDate}.`; status.className = 'inline-status warning';
 }
 const embeddedSnapshot = {
   generatedAt: 'checked-in static snapshot', freshness: 'stale-by-design',
