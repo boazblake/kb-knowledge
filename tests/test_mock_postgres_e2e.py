@@ -48,7 +48,9 @@ class MockPostgresE2ETests(unittest.TestCase):
             uri = reference[0].decode() if isinstance(reference[0], bytes) else reference[0]
             key = uri.replace(f"s3://{raw.bucket}/", "")
             self.assertNotIn(b"MOCK/REFERENCE", raw.mock_client.objects[(raw.bucket, key)][0])
-            self.assertEqual(b"{}", app.service.read_raw(connector.source, "object-1"))
+            with self.assertRaises(PermissionError):
+                app.service.read_raw(connector.source, "object-1")
+            self.assertEqual(b"{}", app.service.read_raw_test_only(connector.source, "object-1"))
         finally:
             repo.close(); issuer.close()
 

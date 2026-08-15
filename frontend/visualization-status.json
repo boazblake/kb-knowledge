@@ -1,6 +1,8 @@
 {
   "snapshot": "Phase 4 reviewed evidence · 2026-08-15",
-  "commits": { "implementation": "e3710e3", "docs": "edc9083" },
+  "commits": { "implementation": "9be2d0b", "remediation": "9be2d0b", "docs": "edc9083" },
+  "remediationStage": "uncommitted remediation",
+  "evidenceScope": "current code-review remediation pending checkpoint",
   "production_qualification": false,
   "mode": "MOCK / REFERENCE",
   "decision": "Production NO-GO",
@@ -8,6 +10,7 @@
   "environment": "Pinned Nix and disposable PostgreSQL evidence runs",
   "provider": { "endpointsConfigured": false, "credentialsConfigured": false, "liveCalls": 0, "externalConnector": false, "absent": ["approved non-production provider configuration", "real provider transport", "credentials"] },
   "evidenceRun": {
+    "runDate": "2026-08-15",
     "nixFull": { "label": "Nix full", "passed": 200, "failed": 0 },
     "disposablePostgresqlFull": { "label": "Disposable PostgreSQL", "passed": 200, "failed": 0 },
     "targetedP4": { "label": "Targeted P4", "passed": 14, "failed": 0 },
@@ -19,7 +22,7 @@
   "scenarios": ["Cursor acknowledgement", "Revision ordering", "Upsert/update", "Delete", "Permission change", "Retry classification", "Permanent failure classification", "Duplicate webhook", "Incomplete snapshot safety", "Provenance", "Credential redaction", "Tenant/source identity"],
   "remediation": ["Connector contract validated", "Disposable PostgreSQL full suite: 200/0", "Targeted P4 checks: 14/0", "21/21 labeled scenarios"],
   "horizons": ["Prototype/reference", "Production-shaped non-prod", "Production qualification/release"],
-  "evidence": ["Implementation checkpoint: e3710e3", "Docs metadata: edc9083", "Nix full: 200 passed / 0 failed", "Disposable PostgreSQL: 200 passed / 0 failed", "Targeted P4: 14 passed / 0 failed", "Labeled scenarios: 21/21", "MOCK/REFERENCE only; production qualification=false"],
+  "evidence": ["Remediation commit: 9be2d0b", "Current stage: uncommitted remediation", "Scope: current code-review remediation pending checkpoint", "Docs metadata: edc9083", "Prior test run (2026-08-15) — Nix full: 200 passed / 0 failed", "Prior test run (2026-08-15) — Disposable PostgreSQL: 200 passed / 0 failed", "Prior test run (2026-08-15) — Targeted P4: 14 passed / 0 failed", "Prior test run (2026-08-15) — Labeled scenarios: 21/21", "MOCK/REFERENCE only; production qualification=false"],
   "missingNonProd": ["Approved non-production provider configuration", "Real provider endpoints", "Provider credentials"],
   "missingProduction": ["Live provider qualification", "Production load/SLO", "RPO/RTO", "Recovery rehearsal", "SEC/OPS approval"],
   "next": "Obtain approved non-production provider configuration, then rerun live integration.",

@@ -332,6 +332,24 @@ class P4PostgresIntegrationTests(unittest.TestCase):
             result.identity, result.revision, result.score, result.title, result.snippet,
             result.provenance, {"raw_reference": {"content_hash": ""}})))
 
+    def test_citation_rejects_cross_namespace_provenance_tampering(self):
+        envelope = self.envelope()
+        self.apply(envelope)
+        self.authority(envelope.semantic_key, 1)
+        principal = Principal("alice", "tenant-a", source_scopes=frozenset({"docs"}))
+        result = PostgresFTSQueryService(self.connection).search(principal, "alpha", source="docs")[0]
+        with self.connection.transaction():
+            self.connection.execute("UPDATE ingestion_authority SET raw_object_uri=%s,content_hash=%s",
+                                    (result.citation["raw_reference"]["uri"],
+                                     result.citation["raw_reference"]["content_hash"]))
+        for field, value in (("provider", "other-provider"), ("connector", "other-connector"),
+                             ("source_instance", "other-instance")):
+            provenance = dict(result.provenance)
+            provenance[field] = value
+            tampered = QueryResultDTO(result.identity, result.revision, result.score, result.title,
+                                      result.snippet, provenance, result.citation)
+            self.assertFalse(verify_citation(self.connection, principal, tampered), field)
+
     def test_expired_lease_reaping_is_tenant_workload_scoped(self):
         with self.connection.transaction():
             self.connection.execute("""INSERT INTO ingestion_outbox

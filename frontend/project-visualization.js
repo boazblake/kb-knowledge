@@ -42,7 +42,7 @@
   city[2][3][0][3] = `Labeled scenarios ${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}`;
   function $(selector) { return document.querySelector(selector); }
   const runLabel = run => `${run.passed}/${run.failed}`;
-  document.querySelector('#summary > div:first-child p:last-child').textContent = `Implementation checkpoint ${S.commits.implementation}; docs metadata ${S.commits.docs}. ${S.evidenceLabel}`;
+  document.querySelector('#summary > div:first-child p:last-child').textContent = `Remediation ${S.commits.remediation}; ${S.remediationStage}; ${S.evidenceScope}. Prior test run ${S.evidenceRun.runDate}. Docs metadata ${S.commits.docs}. ${S.evidenceLabel}`;
   const metricGrid = document.querySelector('.metric-grid');
   metricGrid.replaceChildren(...[
     ['Nix full', runLabel(S.evidenceRun.nixFull), 'passed / failed'],

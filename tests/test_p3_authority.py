@@ -280,6 +280,46 @@ class P3AuthorityUnitTests(unittest.TestCase):
             repo.close()
 
     @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
+    def test_batch_gap_does_not_advance_checkpoint_and_skip_missing_revision(self):
+        from kb_pipeline.domain import ACL, CanonicalDocument, SourceVersion
+        from kb_pipeline.protocol import CanonicalChange, Operation, PermissionState, ProvenanceLink, RevisionOutcome
+
+        class CursorOrder:
+            def compare(self, left, right):
+                return (left > right) - (left < right)
+
+        repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
+        suffix = uuid4().hex
+        source = IdentityNamespace("provider", f"batch-{suffix}", connector="connector", source_instance="instance")
+        observed = datetime.now(timezone.utc)
+        document = CanonicalDocument("object", SourceVersion("object", "1", "source://object", observed, "hash"),
+                                     "title", "body", ACL(frozenset({"reader"})))
+
+        def change(revision):
+            return CanonicalChange("object", source, revision, Operation.UPSERT, document, f"{suffix}-{revision}",
+                                   ProvenanceLink("test", suffix), PermissionState(document.acl), occurred_at=observed)
+
+        order = CursorOrder()
+        try:
+            repo.open()
+            repo.checkpoint("connector", "c1", True, source=source, cursor_semantics=order)
+            outcomes = repo.accept_batch(
+                tuple((change(revision), f"source://{revision}", "hash", None) for revision in (1, 3)),
+                checkpoint=(source, "c3", True), cursor_semantics=order)
+            self.assertEqual((RevisionOutcome.ACCEPTED, RevisionOutcome.GAP), outcomes)
+            self.assertEqual(("c1", True), repo.get_checkpoint(source))
+            self.assertEqual(1, repo.raw_reference(source, "object")[2])
+
+            outcomes = repo.accept_batch(
+                tuple((change(revision), f"source://{revision}", "hash", None) for revision in (2, 3)),
+                checkpoint=(source, "c3", True), cursor_semantics=order)
+            self.assertEqual((RevisionOutcome.ACCEPTED, RevisionOutcome.ACCEPTED), outcomes)
+            self.assertEqual(("c3", True), repo.get_checkpoint(source))
+            self.assertEqual(3, repo.raw_reference(source, "object")[2])
+        finally:
+            repo.close()
+
+    @unittest.skipUnless(os.getenv("P3_POSTGRES_DSN"), "P3_POSTGRES_DSN not set; PostgreSQL runtime blocker")
     def test_outbox_failure_requires_lease_owner(self):
         repo = PostgresAuthorityRepository(os.environ["P3_POSTGRES_DSN"])
         suffix = uuid4().hex

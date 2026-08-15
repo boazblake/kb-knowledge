@@ -179,7 +179,11 @@ class PostgresAuthorityRepository:
                                              content_hash=content_hash, audit_event=audit))
                 conn.execute("UPDATE ingestion_raw_objects SET status='committed', committed_at=now() WHERE uri=%s", (uri,))
             outcomes = tuple(outcomes)
-            if checkpoint is not None:
+            checkpoint_eligible = all(
+                outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)
+                for outcome in outcomes
+            )
+            if checkpoint is not None and checkpoint_eligible:
                 source, value, complete = checkpoint
                 current = conn.execute("""SELECT value FROM ingestion_checkpoints
                     WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s FOR UPDATE""",
@@ -515,6 +519,15 @@ class PostgresIngestionService:
 
     def read_raw(self, source, object_id: str, *, principal=None) -> bytes:
         """Read only authority-referenced ciphertext and verify plaintext hash."""
+        if principal is None:
+            raise PermissionError("authenticated principal required for raw object reads")
+        return self._read_raw(source, object_id, principal=principal)
+
+    def read_raw_test_only(self, source, object_id: str) -> bytes:
+        """Explicit test-only escape hatch for fixture reads without identity."""
+        return self._read_raw(source, object_id, principal=None)
+
+    def _read_raw(self, source, object_id: str, *, principal) -> bytes:
         if principal is not None and not principal.can_read(source.tenant, source.connector):
             raise PermissionError("principal outside raw object tenant/source scope")
         if self.raw_storage is None:

@@ -16,7 +16,7 @@ const nodes=[
 ];
 nodes.forEach(node => { node[9] = S.commits.implementation; });
 const fact = document.createElement('p'); fact.className = 'scope-note';
-fact.textContent = `${S.decision}. ${S.evidenceLabel} Implementation ${S.commits.implementation}; docs ${S.commits.docs}. Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}; disposable PostgreSQL ${S.evidenceRun.disposablePostgresqlFull.passed}/${S.evidenceRun.disposablePostgresqlFull.failed}; targeted P4 ${S.evidenceRun.targetedP4.passed}/${S.evidenceRun.targetedP4.failed}; labels ${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}. ${S.provider.liveCalls} live calls.`;
+fact.textContent = `${S.decision}. ${S.evidenceLabel} Remediation ${S.commits.remediation}; ${S.remediationStage}; ${S.evidenceScope}. Tests are prior run ${S.evidenceRun.runDate}.`;
 document.querySelector('.blueprint-main')?.insertBefore(fact, document.querySelector('.blueprint-grid'));
 document.querySelector('.no-go').textContent = `${S.decision} · MOCK / REFERENCE only; real provider endpoints and credentials absent; zero live calls. Snapshot: ${S.snapshot}.`;
 document.querySelector('.blueprint-main > .scope-note')?.replaceChildren(document.createTextNode('pipelineflow.png labels. Green DONE; yellow PARTIAL; red BLOCKED; blue DEFERRED. Local evidence never equals production readiness.'));

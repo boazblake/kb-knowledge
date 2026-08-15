@@ -239,9 +239,25 @@ class PostgresFTSQueryService:
 
 def verify_citation(connection, principal: Principal, result: QueryResultDTO) -> bool:
     if not principal.can_read(result.identity.tenant, result.identity.source): return False
-    row = connection.execute("""SELECT revision,content_hash,tombstoned,readers FROM p4_document
+    row = connection.execute("""SELECT revision,content_hash,tombstoned,readers,provenance FROM p4_document
       WHERE tenant=%s AND source=%s AND source_id=%s""", result.identity.key).fetchone()
     if not row or row[0] != result.revision or row[2] or (row[3] is None or principal.subject not in row[3]):
+        return False
+    stored_provenance = row[4]
+    if isinstance(stored_provenance, str):
+        try:
+            stored_provenance = json.loads(stored_provenance)
+        except (TypeError, ValueError):
+            return False
+    if not isinstance(stored_provenance, Mapping) or not isinstance(result.provenance, Mapping):
+        return False
+    namespace_fields = ("provider", "connector", "source_instance")
+    if any(not isinstance(stored_provenance.get(field), str) or not stored_provenance[field]
+           for field in namespace_fields):
+        return False
+    if (stored_provenance["connector"] != result.identity.source or
+            any(result.provenance.get(field) != stored_provenance[field]
+                for field in namespace_fields)):
         return False
     reference = result.citation.get("raw_reference", {})
     if (not isinstance(reference, Mapping) or not reference.get("uri") or
@@ -251,13 +267,15 @@ def verify_citation(connection, principal: Principal, result: QueryResultDTO) ->
     # Authority verification is mandatory; projection-only evidence abstains.
     try:
         p = result.provenance
-        authority = connection.execute("""SELECT revision,raw_object_uri,content_hash,operation
+        authority = connection.execute("""SELECT provider,connector,source_instance,
+          revision,raw_object_uri,content_hash,operation
           FROM ingestion_authority WHERE provider=%s AND tenant=%s AND connector=%s
           AND source_instance=%s AND object_id=%s""",
           (p["provider"], result.identity.tenant, p["connector"], p["source_instance"],
            result.identity.source_id)).fetchone()
     except Exception:
         return False
-    return bool(authority and authority[0] == result.revision and
-                authority[1] == reference["uri"] and authority[2] == reference["content_hash"] and
-                authority[3] != "delete")
+    return bool(authority and
+                tuple(authority[:3]) == tuple(stored_provenance[field] for field in namespace_fields) and
+                authority[3] == result.revision and authority[4] == reference["uri"] and
+                authority[5] == reference["content_hash"] and authority[6] != "delete")
