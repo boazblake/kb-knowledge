@@ -51,3 +51,14 @@ Ledger authority/outbox; namespace/auth isolation; replay/checkpoints; purge/rec
 API/UI integration; observability. Also unresolved: production identity, encryption,
 concurrency control, atomic backup/restore, enforced limits, and complete
 provenance/freshness/citation evidence.
+## Supported-runtime SLO harness
+
+Run synthetic local measurements with pinned Python 3.11:
+
+```sh
+nix run .#slo-harness -- --records 200 --searches 200 --concurrency 4 --warmup 20 --output slo-evidence.json
+```
+
+Output labels `synthetic-local-simulated`, records commit/runtime/topology/workload/timestamps,
+and compares approved defaults: availability 99.9%, search p95 ≤100 ms, ingest ≥100 records/s,
+freshness, purge SLA. Readiness fails closed when authority or freshness dependencies are stale.
