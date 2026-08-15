@@ -102,7 +102,8 @@ class NangoAdapter:
                  transport: NangoTransport | None = None, *, connector: str = "nango", cursor_store=None,
                  oidc_token: str | None = None):
         self.provider_config, self.connection, self.tenant = provider_config, connection, tenant
-        self.connector, self.transport, self.oidc_token = connector, transport, oidc_token
+        # Legacy argument intentionally ignored. Bearer material never enters records.
+        self.connector, self.transport = connector, transport
         self.cursor_store = cursor_store
         self.cursor: str | None = self._load_cursor()
         self._acknowledged: set[str] = set()
@@ -121,7 +122,7 @@ class NangoAdapter:
                                  self.connector, self.connection)
 
     def _envelope(self, record: NangoRecord, *, run_id: str, event_id: str | None = None):
-        payload = json.dumps(dict(record.payload), sort_keys=True, separators=(",", ":")).encode()
+        payload = json.dumps(_redact_secrets(record.payload), sort_keys=True, separators=(",", ":")).encode()
         digest = record.source_hash or hashlib.sha256(payload).hexdigest()
         source_id = record.object_id
         version = str(record.revision)
@@ -132,22 +133,21 @@ class NangoAdapter:
                         {"provider_config": self.provider_config, "connection": self.connection,
                          "tenant": self.tenant, "run_id": run_id, "source_revision": version,
                          "source_hash": digest}, envelope_id=raw_id)
-        if self.oidc_token is not None:
-            raw = RawRecord(source_version, payload,
-                            {**raw.metadata, "oidc_token": self.oidc_token}, envelope_id=raw_id)
         permissions = PermissionState(ACL(record.permission_readers), record.permission_resolved,
                                       record.occurred_at)
         value = None
         if record.operation != Operation.DELETE:
-            value = CanonicalDocument(source_id, source_version, str(record.payload.get("title", source_id)),
-                                       str(record.payload.get("text", "")), permissions.acl,
+            safe_payload = _redact_secrets(record.payload)
+            if not isinstance(safe_payload, Mapping):
+                safe_payload = {}
+            value = CanonicalDocument(source_id, source_version, str(safe_payload.get("title", source_id)),
+                                       str(safe_payload.get("text", "")), permissions.acl,
                                        {"provider_config": self.provider_config, "connection": self.connection})
         change = CanonicalChange(source_id, self.source, record.revision, record.operation, value,
                                  raw_id, ProvenanceLink("nango-run", run_id,
                                  ProvenanceLink("nango-event", event_id or raw_id)), permissions,
                                  record.data_class, record.occurred_at)
         return raw, change
-
     def poll(self) -> AdapterBatch:
         if self.transport is None:
             raise RuntimeError("transport required for poll")
@@ -187,3 +187,13 @@ class NangoAdapter:
                 pairs.append(self._envelope(NangoRecord(object_id, {}, 1, Operation.DELETE), run_id=run_id))
         return AdapterBatch(None, tuple(pairs), complete, run_id, capability=self.capability,
                             capability_status=CapabilityStatus.COMPLETE if complete else CapabilityStatus.PARTIAL)
+
+
+_SECRET_KEYS = {"oidc_token", "bearer", "bearer_token", "access_token", "refresh_token", "id_token", "authorization"}
+def _redact_secrets(value):
+    if isinstance(value, Mapping):
+        return {key: "[REDACTED]" if str(key).lower() in _SECRET_KEYS else _redact_secrets(item)
+                for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_secrets(item) for item in value]
+    return value

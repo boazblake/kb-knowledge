@@ -47,6 +47,9 @@ class RuntimeConfig:
     authority_repository: Any | None = None
     telemetry_endpoint: str | None = None
     telemetry_service_name: str | None = None
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: str | None = None
 
     def validate(self) -> "RuntimeConfig":
         if self.mode not in {"demo", "slice", "production"}:

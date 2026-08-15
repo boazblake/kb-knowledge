@@ -42,6 +42,26 @@ class _ProductionScopeAPI(unittest.TestCase):
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
 
+    def test_production_status_is_admin_only(self):
+        from kb_pipeline.api import create_server
+        from kb_pipeline.security import Principal
+        class Validator:
+            production_oidc = True; test_only = False
+            def validate(self, token): return Principal("u", "tenant-a", frozenset({"reader"}), frozenset({"*"}))
+        class Service:
+            class Store:
+                def status(self): raise AssertionError("global status must not be read")
+            store = Store()
+        server, _ = create_server(Service(), port=0, identity_provider=Validator(), production=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(f"http://{server.server_address[0]}:{server.server_address[1]}/v1/status",
+                                headers={"Authorization": "Bearer synthetic"}))
+            self.assertEqual(403, error.exception.code)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=2)
+
 
 @unittest.skipUnless(HAS_OIDC_DEPS, "PyJWT[crypto] unavailable; local OIDC evidence not runnable")
 class ProductionOIDCTests(unittest.TestCase):
@@ -120,6 +140,10 @@ class ProductionOIDCTests(unittest.TestCase):
     def test_fake_identity_is_not_production_validator(self):
         self.assertTrue(getattr(FakeOIDCValidator("i", "a", {}), "test_only"))
         self.assertFalse(getattr(FakeOIDCValidator("i", "a", {}), "production_oidc", False))
+
+    def test_symmetric_algorithm_configuration_is_rejected(self):
+        with self.assertRaises(ValueError):
+            OIDCJWKSValidator("i", "a", "u", algorithms=("HS256",))
 
 
 if __name__ == "__main__":

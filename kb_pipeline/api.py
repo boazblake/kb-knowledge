@@ -61,6 +61,12 @@ def _handler(service, tokens, session_token, max_query_chars=512, max_results=10
                 return False
             return True
 
+        def _admin_only(self, principal):
+            if hasattr(principal, "is_admin") and not principal.is_admin(principal.tenant):
+                self._error(403, "forbidden", "admin principal required")
+                return False
+            return True
+
         def do_GET(self):
             path = urlsplit(self.path)
             if path.path == "/v1/health":
@@ -86,11 +92,13 @@ def _handler(service, tokens, session_token, max_query_chars=512, max_results=10
             if not self._authorize_scope(identity, path.query):
                 return
             if path.path == "/v1/status":
+                if getattr(self.server, "production", False) and not self._admin_only(identity): return
                 status = service.store.status(); status["health"] = service.health() if hasattr(service, "health") else {}
                 return self._send(200, status)
             if path.path == "/v1/report":
                 try:
-                    report = service.report() if hasattr(service, "report") else _report(service)
+                    if getattr(self.server, "production", False) and not self._admin_only(identity): return
+                    report = service.report(identity) if getattr(self.server, "production", False) and hasattr(service, "report") else (service.report() if hasattr(service, "report") else _report(service))
                     return self._send(200, report)
                 except Exception:
                     return self._error(503, "unavailable", "service unavailable")
@@ -186,4 +194,5 @@ def create_server(service, host="127.0.0.1", port=8080, token=None, *, max_query
         handler._identity = production_identity
     server = ThreadingHTTPServer((host, port), handler)
     setattr(server, "runtime_tokens", tokens)
+    setattr(server, "production", production)
     return server, token

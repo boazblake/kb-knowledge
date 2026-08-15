@@ -35,6 +35,30 @@ class Gate3RuntimeTests(unittest.TestCase):
                 self.assertEqual("complete", hit["status"])
             finally:
                 server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_authenticated_report_has_stable_empty_schema_and_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app = compose(RuntimeConfig(root / "db.sqlite", root))
+            server, token = create_server(app.service, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+            base = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                with self.assertRaises(HTTPError) as missing:
+                    urlopen(base + "/v1/report")
+                self.assertEqual(401, missing.exception.code)
+                response = urlopen(Request(base + "/v1/report", headers={"Authorization": f"Bearer {token}"}))
+                report = json.load(response)
+                self.assertEqual({"documents": 0, "tombstones": 0, "raw_records": 0}, report["counts"])
+                self.assertEqual({"sequence": 0, "outbox_pending": 0, "outbox_failed": 0,
+                                  "dead_letters": 0, "gaps": 0,
+                                  "checkpoints": {"default:state": 0, "default:document": 0,
+                                                   "default:lexical": 0, "default:search": 0}}, report["ledger"])
+                self.assertEqual("ready", report["readiness"]["status"])
+                self.assertTrue(report["projection"]["lag"])
+                self.assertTrue(all(value == 0 for value in report["projection"]["lag"].values()))
+            finally:
+                server.shutdown(); server.server_close(); thread.join(timeout=2)
     def test_clean_start_serves_ui_and_separates_health_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -102,6 +126,47 @@ class Gate3RuntimeTests(unittest.TestCase):
             root = Path(tmp)
             with self.assertRaises(ValueError):
                 RuntimeConfig(root / "db", root, mode="production", payload_provider=LocalTestKeyProvider()).validate()
+
+    def test_document_lag_100_is_not_ready_and_watermarks_are_exact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "source"; source.mkdir()
+            app = compose(RuntimeConfig(root / "db.sqlite", source))
+            for number in range(100):
+                (source / f"{number}.txt").write_text(f"synthetic-{number}")
+            for item in app.connector.read():
+                app.service.ingest(item, "lag-test")
+            with app.store.writer_lock:
+                app.service.ledger.db.execute("UPDATE protocol_checkpoints SET sequence=0 WHERE stream='default:state'")
+                app.service.ledger.db.commit()
+            health = app.service.health()
+            self.assertEqual(100, health["ledger_sequence"])
+            self.assertEqual(0, health["watermarks"]["document"])
+            self.assertEqual(100, health["projection_lag"]["default:document"])
+            self.assertEqual("not_ready", app.service.readiness()["status"])
+
+    def test_sqlite_threaded_readers_and_single_writer_have_bounded_outcomes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "source"; source.mkdir()
+            app = compose(RuntimeConfig(root / "db.sqlite", source))
+            errors = []; reads = []; lock = threading.Lock()
+            def reader():
+                try:
+                    for _ in range(100):
+                        app.store.status(); app.store.all(); reads.append(1)
+                except Exception as exc:
+                    with lock: errors.append(type(exc).__name__)
+            def writer():
+                try:
+                    for item in app.connector.read(): app.service.ingest(item, "concurrent")
+                except Exception as exc:
+                    with lock: errors.append(type(exc).__name__)
+            threads = [threading.Thread(target=reader) for _ in range(6)] + [threading.Thread(target=writer)]
+            for thread in threads: thread.start()
+            for thread in threads: thread.join(timeout=30)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual([], errors)
+            self.assertGreater(len(reads), 0)
+            self.assertLessEqual(app.store.status()["busy_timeout_ms"], 30000)
 
 
 if __name__ == "__main__":

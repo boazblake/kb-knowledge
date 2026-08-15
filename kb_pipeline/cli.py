@@ -10,6 +10,7 @@ from .api import create_server
 from .answer import OllamaAnswerer
 from .vision import LocalOllamaVisionObserver
 from .embedding import OllamaEmbedder, input_hash
+from .production_adapters import ManagedOIDCValidator
 from urllib.parse import urlsplit
 
 
@@ -303,9 +304,16 @@ def main():
         print(json.dumps(app.service.reextract_images(vision_observer, a.semantic_full), sort_keys=True, indent=2))
         return
     if a.command in {"serve", "index", "rebuild"}:
-        config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend", answerer=answerer, vision_observer=vision_observer, semantic_embedder=semantic_embedder); app = compose(config)
+        identity_provider = None
+        if a.mode == "production":
+            issuer, audience, jwks_url = (os.environ.get(name) for name in ("OIDC_ISSUER", "OIDC_AUDIENCE", "OIDC_JWKS_URL"))
+            if not all((issuer, audience, jwks_url)):
+                p.error("production requires OIDC_ISSUER, OIDC_AUDIENCE, and OIDC_JWKS_URL")
+            assert issuer is not None and audience is not None and jwks_url is not None
+            identity_provider = ManagedOIDCValidator(issuer, audience, jwks_url)
+        config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend", answerer=answerer, vision_observer=vision_observer, semantic_embedder=semantic_embedder, identity_provider=identity_provider, oidc_issuer=os.environ.get("OIDC_ISSUER"), oidc_audience=os.environ.get("OIDC_AUDIENCE"), oidc_jwks_url=os.environ.get("OIDC_JWKS_URL")); app = compose(config)
         if a.command == "serve":
-            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production"); print(f"serving on {server.server_address[0]}:{server.server_address[1]} token={token}", flush=True); server.serve_forever()
+            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production"); print(f"serving on {server.server_address[0]}:{server.server_address[1]}", flush=True); server.serve_forever()
         else:
             if a.command == "index": app.service.reconcile(app.connector, "startup")
             app.store.rebuild_index()

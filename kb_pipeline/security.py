@@ -64,6 +64,8 @@ class OIDCJWKSValidator:
     test_only = False
     production_oidc = True
 
+    ASYMMETRIC_ALGORITHMS = frozenset({"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"})
+
     def __init__(self, issuer: str, audience: str, jwks_url: str, *,
                  algorithms: tuple[str, ...] = ("RS256",), leeway: int = 30,
                  cache_lifespan: int = 300, timeout: float = 5.0,
@@ -71,7 +73,8 @@ class OIDCJWKSValidator:
                  source_scopes_claim: str = "source_scopes"):
         if not issuer or not audience or not jwks_url:
             raise ValueError("issuer, audience, and jwks_url are required")
-        if not algorithms or any(not isinstance(value, str) for value in algorithms):
+        if (not algorithms or any(not isinstance(value, str) for value in algorithms)
+                or not set(algorithms).issubset(self.ASYMMETRIC_ALGORITHMS)):
             raise ValueError("algorithm allow-list is required")
         if leeway < 0 or cache_lifespan <= 0 or timeout <= 0:
             raise ValueError("invalid OIDC clock/cache/network policy")

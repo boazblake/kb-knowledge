@@ -47,5 +47,12 @@ class NangoAdapterTests(unittest.TestCase):
         self.assertNotIn("archive", adapter.capability.features)
         self.assertEqual("partial", CapabilityStatus.PARTIAL.value)
 
+    def test_bearer_material_never_persisted(self):
+        adapter = NangoAdapter("github", "conn", "tenant", oidc_token="secret")
+        raw, change = adapter._envelope(NangoRecord("x", {"text": "ok", "oidc_token": "secret", "nested": {"bearer": "secret"}}), run_id="r")
+        self.assertNotIn(b"secret", raw.payload)
+        self.assertNotIn("oidc_token", raw.metadata)
+        self.assertNotIn("bearer", str(getattr(change.value, "metadata", "")))
+
 
 if __name__ == "__main__": unittest.main()

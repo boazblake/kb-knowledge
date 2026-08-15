@@ -205,6 +205,7 @@ class PostgresIngestionService:
     def ingest_change(self, raw, change, job_id: str) -> bool:
         """Persist connector envelope without collapsing revision or operation."""
         self._authorize(raw.metadata, change.source.tenant, change.source.source_instance)
+        raw = type(raw)(raw.source, raw.payload, _without_credentials(raw.metadata), raw.schema_version, raw.envelope_id)
         raw_uri = raw.source.source_uri
         if self.raw_storage is not None:
             raw_uri = self.raw_storage.put(
@@ -224,7 +225,7 @@ class PostgresIngestionService:
 
         self._authorize(item.metadata, item.tenant, item.source_instance)
         source = source_version(item)
-        raw = RawRecord(source, item.payload, item.metadata)
+        raw = RawRecord(source, item.payload, _without_credentials(item.metadata))
         acl = item.permissions or ACL(None)  # unresolved identity is fail-closed
         document = self.canonicalizer.canonicalize(raw, acl)
         key_material = "\x00".join((item.provider, item.tenant, item.connector,
@@ -238,3 +239,9 @@ class PostgresIngestionService:
                                          content_hash=source.content_hash,
                                          audit_event=(event_id, "ingest", job_id))
         return outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)
+
+
+_CREDENTIAL_KEYS = {"oidc_token", "bearer", "bearer_token", "access_token", "refresh_token", "id_token", "authorization"}
+def _without_credentials(metadata):
+    return {key: value for key, value in dict(metadata or {}).items()
+            if str(key).lower() not in _CREDENTIAL_KEYS}

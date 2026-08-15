@@ -48,29 +48,23 @@ class S3RawObjectStore:
 
 
 class ManagedOIDCValidator:
+    """Compatibility wrapper delegating to single secure OIDC validator."""
     test_only = False
-    def __init__(self, issuer: str, audience: str, *, validator: Any = None):
-        if not issuer or not audience: raise ValueError("OIDC issuer and audience required")
-        self.issuer, self.audience, self.validator = issuer, audience, validator
-        if validator is None:
-            try: importlib.import_module("jwt")
-            except ImportError as exc: raise AdapterUnavailable("PyJWT or injected OIDC validator required") from exc
+    production_oidc = True
+    def __init__(self, issuer: str, audience: str, jwks_url: str | None = None, *, validator: Any = None,
+                 algorithms: tuple[str, ...] = ("RS256",), leeway: int = 30,
+                 cache_lifespan: int = 300, timeout: float = 5.0):
+        from .security import OIDCJWKSValidator
+        if validator is not None:
+            self._validator = validator
+        else:
+            if not jwks_url: raise ValueError("OIDC JWKS URL required")
+            try:
+                self._validator = OIDCJWKSValidator(issuer, audience, jwks_url, algorithms=algorithms,
+                                                    leeway=leeway, cache_lifespan=cache_lifespan, timeout=timeout)
+            except ImportError as exc: raise AdapterUnavailable("PyJWT[crypto] required") from exc
     def validate(self, token: str):
-        if self.validator is not None: return self.validator(token)
-        try:
-            jwt = importlib.import_module("jwt")
-            client = jwt.PyJWKClient(self.issuer + "/.well-known/jwks.json")
-            key = client.get_signing_key_from_jwt(token).key
-            claims = jwt.decode(token, key, algorithms=["RS256", "ES256"], audience=self.audience, issuer=self.issuer)
-            from .security import Principal
-            tenant = claims.get("tenant")
-            roles = claims.get("roles", [])
-            scopes = claims.get("source_scopes", claims.get("scopes", []))
-            if not claims.get("sub") or not tenant or not isinstance(roles, list) or not isinstance(scopes, list):
-                raise ValueError("invalid tenant claims")
-            return Principal(claims["sub"], tenant, frozenset(roles), frozenset(scopes), claims["iss"])
-        except Exception as exc:
-            raise AdapterUnavailable("OIDC JWKS validation failed") from exc
+        return self._validator.validate(token)
 
 
 class CloudKMSProvider:
