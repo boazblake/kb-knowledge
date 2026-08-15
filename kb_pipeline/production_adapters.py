@@ -15,17 +15,35 @@ class AdapterUnavailable(RuntimeError):
 
 class S3RawObjectStore:
     test_only = False
-    def __init__(self, bucket: str, *, client: Any = None, prefix: str = "raw/"):
+    def __init__(self, bucket: str, *, client: Any = None, prefix: str = "raw/", kms: Any = None, tenant: str = ""):
         if not bucket: raise ValueError("S3 bucket required")
         if client is None:
             try: client = importlib.import_module("boto3").client("s3")
             except ImportError as exc: raise AdapterUnavailable("boto3 required for S3 raw storage") from exc
-        self.bucket, self.client, self.prefix = bucket, client, prefix
+        self.bucket, self.client, self.prefix, self.kms, self.tenant = bucket, client, prefix, kms, tenant
     def _key(self, key: str) -> str: return f"{self.prefix}{key}"
     def put(self, key, payload, *, metadata=None):
-        self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=payload, Metadata=dict(metadata or {}))
+        metadata = dict(metadata or {})
+        if self.kms is not None:
+            context = {"object_key": key, "tenant": self.tenant, "purpose": "raw-artifact"}
+            envelope = self.kms.encrypt(payload, key_id=self.kms.current_key_id, context=context)
+            payload = envelope.ciphertext
+            metadata.update({"kms-key-id": envelope.key_id, "kms-algorithm": envelope.algorithm,
+                             "kms-nonce": envelope.nonce.hex(), "kms-tag": envelope.tag.hex(),
+                             "kms-context": envelope.context.hex()})
+        self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=payload, Metadata=metadata)
         return f"s3://{self.bucket}/{self._key(key)}"
-    def get(self, key): return self.client.get_object(Bucket=self.bucket, Key=self._key(key))["Body"].read()
+    def get(self, key):
+        result = self.client.get_object(Bucket=self.bucket, Key=self._key(key))
+        payload = result["Body"].read()
+        metadata = {str(k).lower(): v for k, v in result.get("Metadata", {}).items()}
+        if self.kms is None or "kms-key-id" not in metadata:
+            return payload
+        from .protocol import PayloadEnvelope
+        envelope = PayloadEnvelope(metadata["kms-key-id"], metadata["kms-algorithm"], payload,
+                                   bytes.fromhex(metadata["kms-nonce"]), bytes.fromhex(metadata["kms-tag"]),
+                                   bytes.fromhex(metadata.get("kms-context", "")))
+        return self.kms.decrypt(envelope, context={"object_key": key, "tenant": self.tenant, "purpose": "raw-artifact"})
     def delete(self, key): self.client.delete_object(Bucket=self.bucket, Key=self._key(key))
 
 
@@ -39,7 +57,20 @@ class ManagedOIDCValidator:
             except ImportError as exc: raise AdapterUnavailable("PyJWT or injected OIDC validator required") from exc
     def validate(self, token: str):
         if self.validator is not None: return self.validator(token)
-        raise AdapterUnavailable("OIDC JWKS client must be injected for managed validation")
+        try:
+            jwt = importlib.import_module("jwt")
+            client = jwt.PyJWKClient(self.issuer + "/.well-known/jwks.json")
+            key = client.get_signing_key_from_jwt(token).key
+            claims = jwt.decode(token, key, algorithms=["RS256", "ES256"], audience=self.audience, issuer=self.issuer)
+            from .security import Principal
+            tenant = claims.get("tenant")
+            roles = claims.get("roles", [])
+            scopes = claims.get("source_scopes", claims.get("scopes", []))
+            if not claims.get("sub") or not tenant or not isinstance(roles, list) or not isinstance(scopes, list):
+                raise ValueError("invalid tenant claims")
+            return Principal(claims["sub"], tenant, frozenset(roles), frozenset(scopes), claims["iss"])
+        except Exception as exc:
+            raise AdapterUnavailable("OIDC JWKS validation failed") from exc
 
 
 class CloudKMSProvider:

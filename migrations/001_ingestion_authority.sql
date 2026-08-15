@@ -8,8 +8,9 @@ CREATE TABLE IF NOT EXISTS ingestion_checkpoints (
 );
 CREATE TABLE IF NOT EXISTS ingestion_outbox (
   sequence bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  idempotency_key text NOT NULL UNIQUE, object_key text NOT NULL, payload jsonb NOT NULL,
+  idempotency_key text NOT NULL UNIQUE, object_key text NOT NULL, tenant text NOT NULL, workload text NOT NULL, payload jsonb NOT NULL,
   status text NOT NULL DEFAULT 'pending', attempts integer NOT NULL DEFAULT 0,
+  lease_owner text, lease_expires_at timestamptz,
   available_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS ingestion_authority (
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS ingestion_audit (
   target text NOT NULL, tenant text NOT NULL, occurred_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS ingestion_idempotency (
-  idempotency_key text PRIMARY KEY, object_key text NOT NULL, revision bigint NOT NULL,
+  idempotency_key text PRIMARY KEY, object_key text NOT NULL, revision bigint NOT NULL, fingerprint text NOT NULL,
   accepted_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS ingestion_dead_letters (

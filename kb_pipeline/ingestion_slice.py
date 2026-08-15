@@ -16,6 +16,9 @@ class IngestionSlice:
             for raw, change in batch.envelopes:
                 if change.value is None:
                     continue
+                if hasattr(self.service, "ingest_change"):
+                    accepted = self.service.ingest_change(raw, change, job_id) and accepted
+                    continue
                 value = change.value
                 item = Input(self.adapter.connector, value.document_id, raw.payload,
                              value.source.source_uri, value.source.observed_at,
@@ -25,6 +28,8 @@ class IngestionSlice:
             self.adapter.acknowledge(batch, ledger_accepted=accepted)
             if accepted and batch.complete:
                 self.workflow.start_ingestion(job_id, {"cursor": batch.cursor, "run_id": batch.run_id})
+                if self.telemetry:
+                    self.telemetry.counter("ingestion.accepted")
             return batch, accepted
 
 

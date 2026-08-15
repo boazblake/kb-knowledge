@@ -10,6 +10,7 @@ from .service import KnowledgeService
 from .answer import DeterministicAnswerer
 from .storage import LexicalIndex, MemoryAuditStore, SQLiteStore
 from .postgres_authority import PostgresAuthorityRepository, PostgresIngestionService
+from .ingestion_slice import IngestionSlice
 
 
 class DemoACLResolver:
@@ -92,12 +93,14 @@ class RuntimeConfig:
                 "raw_storage": ("put", "get", "delete"),
                 "workflow": ("start_ingestion",),
                 "telemetry": ("span", "counter"),
-                "connector": ("poll", "read"),
+                "connector": ("poll", "acknowledge"),
             }
             for name, methods in required.items():
                 provider = getattr(self, name)
                 if not all(hasattr(provider, method) for method in methods):
                     raise ValueError(f"production dependency {name} has incompatible adapter type")
+            if getattr(self.raw_storage, "kms", None) is None and not getattr(self.raw_storage, "encrypted", False):
+                raise ValueError("production raw storage must be KMS-encrypted")
         return self
 
 
@@ -107,6 +110,7 @@ class Composition:
     store: Any
     connector: Any
     service: Any
+    ingestion: Any | None = None
 
 
 def compose(config: RuntimeConfig) -> Composition:
@@ -116,8 +120,13 @@ def compose(config: RuntimeConfig) -> Composition:
         # Construction is intentionally eager: missing psycopg or DB setup fails
         # before accepting traffic, never by silently falling back to SQLite.
         repository.open()
-        return Composition(config, repository, config.connector,
-                           PostgresIngestionService(repository, config.connector, ContentAwareCanonicalizer()))
+        service = PostgresIngestionService(repository, config.connector, ContentAwareCanonicalizer(),
+                                            raw_storage=config.raw_storage,
+                                            identity_provider=config.identity_provider,
+                                            key_provider=config.key_provider,
+                                            telemetry=config.telemetry)
+        return Composition(config, repository, config.connector, service,
+                           IngestionSlice(config.connector, service, config.workflow, config.telemetry))
     store = SQLiteStore(config.database, payload_provider=config.payload_provider)
     assert config.source_root is not None
     connector = LocalFilesConnector(config.source_root)

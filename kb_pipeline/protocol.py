@@ -87,6 +87,7 @@ class PayloadEnvelope:
     ciphertext: bytes
     nonce: bytes
     tag: bytes
+    context: bytes = b""
 
 
 class LocalTestKeyProvider:
@@ -211,12 +212,17 @@ class RelationalReferenceLedger:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
         self._lock = threading.RLock()
+        self.db.execute("PRAGMA busy_timeout=30000")
+        try: self.db.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError: pass
+        self.db.execute("PRAGMA synchronous=FULL")
+        self.db.execute("PRAGMA foreign_keys=ON")
         # All durable protocol writes share this lock. Readers do not.
         self.writer_lock = self._lock
         self.db.execute("CREATE TABLE IF NOT EXISTS protocol_ledger (sequence INTEGER PRIMARY KEY AUTOINCREMENT, idempotency TEXT UNIQUE, object_id TEXT, source TEXT, revision INTEGER, operation TEXT, payload TEXT, provenance TEXT, permissions TEXT, data_class TEXT, occurred_at TEXT, object_key TEXT, source_version TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS protocol_conflicts (sequence INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT, object_id TEXT, revision INTEGER, idempotency TEXT, reason TEXT, payload TEXT, occurred_at TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS protocol_checkpoints (stream TEXT PRIMARY KEY, sequence INTEGER NOT NULL)")
-        self.db.execute("CREATE TABLE IF NOT EXISTS protocol_outbox (sequence INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending', claimed_by TEXT, lease_until TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, FOREIGN KEY(sequence) REFERENCES protocol_ledger(sequence))")
+        self.db.execute("CREATE TABLE IF NOT EXISTS protocol_outbox (sequence INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending', claimed_by TEXT, lease_until TEXT, tenant TEXT NOT NULL DEFAULT '', workload TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, FOREIGN KEY(sequence) REFERENCES protocol_ledger(sequence))")
         self.db.execute("CREATE TABLE IF NOT EXISTS protocol_dead_letters (sequence INTEGER PRIMARY KEY, reason TEXT NOT NULL, failed_at TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS protocol_gaps (id INTEGER PRIMARY KEY AUTOINCREMENT, object_key TEXT, expected INTEGER, received INTEGER, idempotency TEXT UNIQUE, payload TEXT, occurred_at TEXT)")
         try: self.db.execute("ALTER TABLE protocol_ledger ADD COLUMN object_key TEXT")
@@ -232,7 +238,29 @@ class RelationalReferenceLedger:
         with self._lock:
             return self._append_outcome(change)
 
-    def _append_outcome(self, change: CanonicalChange) -> RevisionOutcome:
+    def atomic_accept(self, change, before_append=(), after_append=()):
+        """Run raw metadata, ledger/outbox, and audit SQL in one writer transaction."""
+        with self._lock:
+            try:
+                savepoint = "gate5_accept"
+                nested = self.db.in_transaction
+                if nested:
+                    self.db.execute(f"SAVEPOINT {savepoint}")
+                else:
+                    self.db.execute("BEGIN IMMEDIATE")
+                for callback in before_append: callback(self.db)
+                outcome = self._append_outcome(change, commit=False)
+                if outcome != RevisionOutcome.ACCEPTED:
+                    self.db.execute(f"ROLLBACK TO {savepoint}") if nested else self.db.rollback()
+                    return outcome
+                for callback in after_append: callback(self.db)
+                self.db.execute(f"RELEASE {savepoint}") if nested else self.db.commit()
+                return outcome
+            except Exception:
+                self.db.rollback()
+                raise
+
+    def _append_outcome(self, change: CanonicalChange, *, commit=True) -> RevisionOutcome:
         if change.revision <= 0: raise ValueError("revision must be positive")
         payload = change.value
         if isinstance(payload, CanonicalDocument):
@@ -250,13 +278,15 @@ class RelationalReferenceLedger:
                     existing[0] == payload_json)
             if not same:
                 self.db.execute("INSERT INTO protocol_conflicts(tenant,object_id,revision,idempotency,reason,payload,occurred_at) VALUES (?,?,?,?,?,?,?)", (change.source.tenant, change.object_id, change.revision, change.idempotency_key, "conflicting-payload-or-idempotency", fingerprint, _stamp(change.occurred_at)))
-                self.db.commit(); return RevisionOutcome.CONFLICT
+                if commit: self.db.commit()
+                return RevisionOutcome.CONFLICT
             return RevisionOutcome.DUPLICATE
         current = self.db.execute("SELECT max(revision) FROM protocol_ledger WHERE object_key=?", (object_key,)).fetchone()[0] or 0
         if current >= change.revision: return RevisionOutcome.STALE
         if change.revision > current + 1:
             self.db.execute("INSERT OR IGNORE INTO protocol_gaps(object_key,expected,received,idempotency,payload,occurred_at) VALUES (?,?,?,?,?,?)", (object_key, current + 1, change.revision, change.idempotency_key, fingerprint, _stamp(change.occurred_at)))
-            self.db.commit(); return RevisionOutcome.GAP
+            if commit: self.db.commit()
+            return RevisionOutcome.GAP
         try:
             provenance = [{"kind": x.kind, "identifier": x.identifier} for x in change.provenance.chain()]
             source_version = None if not isinstance(change.value, CanonicalDocument) else json.dumps({"source_id": change.value.source.source_id, "version": change.value.source.version, "source_uri": change.value.source.source_uri, "observed_at": _stamp(change.value.source.observed_at), "content_hash": change.value.source.content_hash, "supersedes": change.value.source.supersedes}, sort_keys=True)
@@ -265,13 +295,14 @@ class RelationalReferenceLedger:
                           "resolved": change.permissions.resolved,
                           "observed_at": _stamp(change.permissions.observed_at)}
             self.db.execute("INSERT INTO protocol_ledger(idempotency,object_id,source,revision,operation,payload,provenance,permissions,data_class,occurred_at,object_key,source_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (change.idempotency_key, change.object_id, source_json, change.revision, change.operation.value, payload_json, json.dumps(provenance), json.dumps(permissions), change.data_class, _stamp(change.occurred_at), object_key, source_version))
-            self.db.execute("INSERT INTO protocol_outbox(sequence) VALUES (last_insert_rowid())")
-            self.db.commit(); return RevisionOutcome.ACCEPTED
+            self.db.execute("INSERT INTO protocol_outbox(sequence,tenant,workload) VALUES (last_insert_rowid(),?,?)", (change.source.tenant, change.source.connector))
+            if commit: self.db.commit()
+            return RevisionOutcome.ACCEPTED
         except sqlite3.IntegrityError:
             self.db.rollback(); return RevisionOutcome.DUPLICATE
 
     def changes(self, after=0):
-        return tuple(self._decode(row) for row in self.db.execute("SELECT * FROM protocol_ledger WHERE sequence>? ORDER BY sequence", (after,)))
+        with self._lock: return tuple(self._decode(row) for row in self.db.execute("SELECT * FROM protocol_ledger WHERE sequence>? ORDER BY sequence", (after,)))
 
     def _decode(self, row):
         acl = json.loads(row[8]); source = IdentityNamespace(*json.loads(row[3])); links = json.loads(row[7]); parent = None
@@ -288,9 +319,9 @@ class RelationalReferenceLedger:
         return CanonicalChange(row[2], source, row[4], Operation(row[5]), value, row[1], parent or ProvenanceLink("unknown", row[2]), permissions, row[9], datetime.fromisoformat(row[10]))
 
     def revision(self, source, object_id):
-        object_key = ObjectKey(source.provider, source.tenant, source.connector,
-                               source.source_instance, object_id).encoded()
-        row = self.db.execute("SELECT max(revision) FROM protocol_ledger WHERE object_key=?", (object_key,)).fetchone(); return row[0] or 0
+        with self._lock:
+            object_key = ObjectKey(source.provider, source.tenant, source.connector, source.source_instance, object_id).encoded()
+            row = self.db.execute("SELECT max(revision) FROM protocol_ledger WHERE object_key=?", (object_key,)).fetchone(); return row[0] or 0
     def revision_for_idempotency(self, key):
         row = self.db.execute("SELECT revision FROM protocol_ledger WHERE idempotency=?", (key,)).fetchone()
         return row[0] if row else None
@@ -299,13 +330,18 @@ class RelationalReferenceLedger:
     @property
     def conflict_count(self):
         return self.db.execute("SELECT count(*) FROM protocol_conflicts").fetchone()[0]
-    def gaps(self): return tuple(self.db.execute("SELECT object_key,expected,received,idempotency FROM protocol_gaps ORDER BY id"))
-    def outbox(self, after=0): return tuple(self.db.execute("SELECT sequence,status FROM protocol_outbox WHERE sequence>? ORDER BY sequence", (after,)))
-    def claim_outbox(self, worker: str, now: datetime | None = None, lease_seconds: int = 60, limit: int = 100):
+    def gaps(self):
+        with self._lock: return tuple(self.db.execute("SELECT object_key,expected,received,idempotency FROM protocol_gaps ORDER BY id"))
+    def outbox(self, after=0):
+        with self._lock: return tuple(self.db.execute("SELECT sequence,status FROM protocol_outbox WHERE sequence>? ORDER BY sequence", (after,)))
+    def claim_outbox(self, worker: str, now: datetime | None = None, lease_seconds: int = 60, limit: int = 100, *, tenant: str | None = None, workload: str | None = None):
         now = now or _now(); stamp = _stamp(now); expiry = _stamp(now + timedelta(seconds=lease_seconds))
         with self._lock:
             self.db.execute("UPDATE protocol_outbox SET status='pending', claimed_by=NULL, lease_until=NULL WHERE status='claimed' AND lease_until<?", (stamp,))
-            rows = self.db.execute("SELECT sequence FROM protocol_outbox WHERE status='pending' ORDER BY sequence LIMIT ?", (limit,)).fetchall()
+            if tenant is None or workload is None:
+                rows = self.db.execute("SELECT sequence FROM protocol_outbox WHERE status='pending' ORDER BY sequence LIMIT ?", (limit,)).fetchall()
+            else:
+                rows = self.db.execute("SELECT sequence FROM protocol_outbox WHERE status='pending' AND tenant=? AND workload=? ORDER BY sequence LIMIT ?", (tenant, workload, limit)).fetchall()
             for row in rows: self.db.execute("UPDATE protocol_outbox SET status='claimed',claimed_by=?,lease_until=?,attempts=attempts+1 WHERE sequence=?", (worker, expiry, row[0]))
             self.db.commit(); return tuple(r[0] for r in rows)
     def mark_applied(self, sequence: int, worker: str):
@@ -318,10 +354,16 @@ class RelationalReferenceLedger:
         if terminal: self.db.execute("INSERT OR REPLACE INTO protocol_dead_letters VALUES (?,?,?)", (sequence, error, _stamp(_now())))
         else: self.db.execute("UPDATE protocol_outbox SET status='pending' WHERE sequence=?", (sequence,))
         self.db.commit()
-    def dead_letters(self): return tuple(self.db.execute("SELECT sequence,reason,failed_at FROM protocol_dead_letters ORDER BY sequence"))
+    def dead_letters(self):
+        with self._lock: return tuple(self.db.execute("SELECT sequence,reason,failed_at FROM protocol_dead_letters ORDER BY sequence"))
     def checkpoint(self, stream):
-        row = self.db.execute("SELECT sequence FROM protocol_checkpoints WHERE stream=?", (stream,)).fetchone(); return row[0] if row else 0
+        with self._lock:
+            row = self.db.execute("SELECT sequence FROM protocol_checkpoints WHERE stream=?", (stream,)).fetchone(); return row[0] if row else 0
     def save_checkpoint(self, stream, sequence):
+        latest = self.db.execute("SELECT max(sequence) FROM protocol_ledger").fetchone()[0] or 0
+        if sequence < 0 or sequence > latest: raise ValueError("checkpoint outside ledger sequence")
+        current = self.checkpoint(stream)
+        if sequence < current: raise ValueError("checkpoint cannot move backwards")
         self.db.execute("INSERT OR REPLACE INTO protocol_checkpoints VALUES (?,?)", (stream, sequence)); self.db.commit()
 
 
@@ -420,8 +462,11 @@ class KnowledgeEngine:
                     if sequence != expected: raise ValueError(f"ledger sequence gap: expected {expected}, got {sequence}")
                     if name == "state": self._apply_store(change)
                     else: target.apply(change)
-                    self.ledger.save_checkpoint(f"{self.stream}:{name}", sequence)
+                    if not rebuild:
+                        self.ledger.save_checkpoint(f"{self.stream}:{name}", sequence)
                     expected += 1
+                if rebuild and rows:
+                    self.ledger.save_checkpoint(f"{self.stream}:{name}", self._sequence(rows[-1]))
             return True
     def process_outbox(self, worker="engine", failure=None, raise_on_failure=False):
         for sequence in self.ledger.claim_outbox(worker):

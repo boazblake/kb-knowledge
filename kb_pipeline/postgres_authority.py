@@ -85,6 +85,9 @@ class PostgresAuthorityRepository:
     def checkpoint(self, connector: str, value: str, complete: bool, *, source: IdentityNamespace | None = None) -> None:
         source = source or IdentityNamespace("unknown", "default", connector=connector)
         with self.transaction() as conn:
+            current = conn.execute("SELECT value FROM ingestion_checkpoints WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s", self.object_key(source, "")[:-1]).fetchone()
+            if current and str(value) < str(current[0]):
+                raise ValueError("checkpoint cannot move backwards")
             conn.execute("""INSERT INTO ingestion_checkpoints
                 (provider,tenant,connector,source_instance,value,complete)
                 VALUES (%s,%s,%s,%s,%s,%s)
@@ -112,9 +115,11 @@ class PostgresAuthorityRepository:
             "metadata": dict(value.metadata),
         } if hasattr(value, "document_id") else dict(value))
         with self.transaction() as conn:
-            duplicate = conn.execute("SELECT 1 FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
+            fingerprint = json.dumps({"object_key": object_key, "revision": change.revision,
+                                      "operation": change.operation.value, "payload": payload}, sort_keys=True, default=str)
+            duplicate = conn.execute("SELECT fingerprint FROM ingestion_idempotency WHERE idempotency_key=%s", (change.idempotency_key,)).fetchone()
             if duplicate:
-                return RevisionOutcome.DUPLICATE
+                return RevisionOutcome.DUPLICATE if duplicate[0] == fingerprint else RevisionOutcome.CONFLICT
             row = conn.execute("""SELECT revision FROM ingestion_authority
                 WHERE provider=%s AND tenant=%s AND connector=%s AND source_instance=%s AND object_id=%s
                 FOR UPDATE""", key).fetchone()
@@ -133,40 +138,41 @@ class PostgresAuthorityRepository:
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                          (*key, change.revision, change.operation.value, json.dumps(payload), raw_object_uri,
                           content_hash, change.occurred_at))
-            conn.execute("INSERT INTO ingestion_idempotency(idempotency_key,object_key,revision) VALUES (%s,%s,%s)",
-                         (change.idempotency_key, object_key, change.revision))
-            conn.execute("INSERT INTO ingestion_outbox(idempotency_key,object_key,payload) VALUES (%s,%s,%s)",
-                         (change.idempotency_key, object_key, json.dumps(payload)))
+            conn.execute("INSERT INTO ingestion_idempotency(idempotency_key,object_key,revision,fingerprint) VALUES (%s,%s,%s,%s)",
+                         (change.idempotency_key, object_key, change.revision, fingerprint))
+            conn.execute("INSERT INTO ingestion_outbox(idempotency_key,object_key,tenant,workload,payload) VALUES (%s,%s,%s,%s,%s)",
+                         (change.idempotency_key, object_key, source.tenant, source.connector, json.dumps(payload)))
             if audit_event:
                 event_id, action, actor = audit_event
                 conn.execute("INSERT INTO ingestion_audit(event_id,action,actor,target,tenant) VALUES (%s,%s,%s,%s,%s)",
                              (event_id, action, actor, change.object_id, source.tenant))
         return RevisionOutcome.ACCEPTED
 
-    def claim_outbox(self, worker: str, *, limit: int = 100) -> tuple[dict[str, Any], ...]:
+    def claim_outbox(self, worker: str, *, tenant: str, workload: str, limit: int = 100, lease_seconds: int = 60) -> tuple[dict[str, Any], ...]:
         """Claim pending deliveries; lease expiry makes crash recovery safe."""
         with self.transaction() as conn:
+            conn.execute("UPDATE ingestion_outbox SET status='pending', lease_owner=NULL, lease_expires_at=NULL WHERE status='claimed' AND lease_expires_at <= now()")
             rows = conn.execute("""WITH picked AS (
                 SELECT sequence FROM ingestion_outbox
-                WHERE status='pending' AND available_at <= now()
+                WHERE status='pending' AND available_at <= now() AND tenant=%s AND workload=%s
                 ORDER BY sequence FOR UPDATE SKIP LOCKED LIMIT %s
-            ) UPDATE ingestion_outbox o SET status='claimed', attempts=o.attempts+1
+            ) UPDATE ingestion_outbox o SET status='claimed', lease_owner=%s, lease_expires_at=now() + (%s * interval '1 second'), attempts=o.attempts+1
               FROM picked WHERE o.sequence=picked.sequence
-              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (limit,)).fetchall()
+              RETURNING o.sequence,o.idempotency_key,o.object_key,o.payload,o.attempts""", (tenant, workload, worker, lease_seconds, limit)).fetchall()
         return tuple({"sequence": r[0], "idempotency_key": r[1], "object_key": r[2],
-                      "payload": r[3], "attempts": r[4], "worker": worker} for r in rows)
+                      "payload": r[3], "attempts": r[4], "worker": worker, "tenant": tenant, "workload": workload} for r in rows)
 
-    def mark_outbox_applied(self, sequence: int) -> None:
+    def mark_outbox_applied(self, sequence: int, worker: str) -> None:
         with self.transaction() as conn:
-            conn.execute("UPDATE ingestion_outbox SET status='applied' WHERE sequence=%s AND status='claimed'", (sequence,))
+            conn.execute("UPDATE ingestion_outbox SET status='applied', lease_owner=NULL, lease_expires_at=NULL WHERE sequence=%s AND status='claimed' AND lease_owner=%s", (sequence, worker))
 
     def mark_outbox_failed(self, sequence: int, reason: str, *, max_attempts: int = 5) -> None:
         with self.transaction() as conn:
-            row = conn.execute("SELECT attempts FROM ingestion_outbox WHERE sequence=%s FOR UPDATE", (sequence,)).fetchone()
+            row = conn.execute("SELECT attempts,lease_owner FROM ingestion_outbox WHERE sequence=%s FOR UPDATE", (sequence,)).fetchone()
             if not row:
                 return
             terminal = row[0] >= max_attempts
-            conn.execute("UPDATE ingestion_outbox SET status=%s, available_at=now() WHERE sequence=%s",
+            conn.execute("UPDATE ingestion_outbox SET status=%s, available_at=now(), lease_owner=NULL, lease_expires_at=NULL WHERE sequence=%s",
                          ("dead" if terminal else "pending", sequence))
             if terminal:
                 conn.execute("INSERT INTO ingestion_dead_letters(sequence,reason) VALUES (%s,%s) ON CONFLICT DO NOTHING",
@@ -176,8 +182,31 @@ class PostgresAuthorityRepository:
 class PostgresIngestionService:
     """Small production composition service; retrieval remains out of scope."""
 
-    def __init__(self, repository: PostgresAuthorityRepository, connector: Any, canonicalizer: Any):
+    def __init__(self, repository: PostgresAuthorityRepository, connector: Any, canonicalizer: Any,
+                 *, raw_storage=None, identity_provider=None, key_provider=None, telemetry=None):
         self.repository, self.connector, self.canonicalizer = repository, connector, canonicalizer
+        self.raw_storage, self.identity_provider, self.key_provider, self.telemetry = raw_storage, identity_provider, key_provider, telemetry
+
+    def ingest_change(self, raw, change, job_id: str) -> bool:
+        """Persist connector envelope without collapsing revision or operation."""
+        if self.identity_provider is not None:
+            token = raw.metadata.get("oidc_token") if hasattr(raw.metadata, "get") else None
+            if not token:
+                raise RuntimeError("authenticated OIDC token required for production ingestion")
+            principal = self.identity_provider.validate(token)
+            if not principal.can_read(change.source.tenant, change.source.source_instance):
+                raise PermissionError("connector principal outside tenant/source scope")
+        raw_uri = raw.source.source_uri
+        if self.raw_storage is not None:
+            raw_uri = self.raw_storage.put(
+                f"{change.source.tenant}/{change.source.connector}/{change.object_id}/{change.revision}",
+                raw.payload, metadata={"tenant": change.source.tenant, "content-hash": raw.source.content_hash})
+        outcome = self.repository.accept(change, raw_object_uri=raw_uri,
+                                         content_hash=raw.source.content_hash,
+                                         audit_event=(change.idempotency_key, change.operation.value, job_id))
+        if self.telemetry:
+            self.telemetry.counter(f"ingestion.{outcome.value}")
+        return outcome in (RevisionOutcome.ACCEPTED, RevisionOutcome.DUPLICATE)
 
     def ingest(self, item, job_id: str) -> bool:
         from .adapters import source_version
