@@ -1,4 +1,5 @@
 const S = window.VISUALIZATION_STATUS || (() => { const request = new XMLHttpRequest(); request.open('GET', 'visualization-status.json', false); request.send(); const data = JSON.parse(request.responseText); if (!data.commits || data.production_qualification !== false) throw new Error('visualization status mismatch'); return data; })();
+const banner=document.createElement('aside');banner.className='shared-status';banner.setAttribute('aria-label','Authoritative SRE snapshot');banner.innerHTML=`<strong>${S.decision}</strong><span>HEAD <code>${S.commits.head}</code> · tested ancestor <code>${S.commits.tested}</code> · migrations ${S.migrations.freshRun} (second run ${S.migrations.secondRun})</span><span>BDD ${S.statuses.bdd} · SRE ${S.statuses.sre} · test-operator ${S.statuses.qa} · production ${S.statuses.production}</span><span>${S.dirtyWorktree}</span>`;document.querySelector('main')?.prepend(banner);
 const nodes=[
 ['files','Local files','Sources / input',90,145,'complete','Input','UTF-8 scan; narrow fixtures.','adapters.py; ingestion_slice.py','7de5dbaa','Qualify real source contract.','No'],
 ['connectors','Connectors','Sources / input',90,285,'partial','Connector','Nango experiment; no provider evidence.','nango_adapter.py; production_adapters.py','00cbc646','Production identity/KMS/provider evidence.','Yes'],
@@ -14,9 +15,9 @@ const nodes=[
 ['ops','OTel / SLO / on-call','Cross-cutting identity / observability',260,455,'blocked','Observability','Telemetry ports; load/SLO harness.','telemetry.py; pilot-readiness.md','e10de7c','Real deployment, alerts, rehearsal.','Yes'],
 ['identity','OIDC / JWKS identity','Cross-cutting identity / observability',600,455,'partial','Identity & Access','OIDC local JWKS packet.','security.py; oidc-jwks-local-2026-08-15.md','e10de7c','Live rotation and tenant policy evidence.','Yes']
 ];
-nodes.forEach(node => { node[9] = S.commits.implementation; });
+nodes.forEach(node => { node[9] = S.commits.head; });
 const fact = document.createElement('p'); fact.className = 'scope-note';
-fact.textContent = `${S.decision}. ${S.evidenceLabel} Core ${S.commits.implementation}; ${S.evidenceScope}. Tests are prior recorded run ${S.evidenceRun.runDate}.`;
+fact.textContent = `${S.decision}. HEAD ${S.commits.head}; tested ancestor ${S.commits.tested}. ${S.evidenceScope} Tests ${S.evidenceRun.runDate}.`;
 document.querySelector('.blueprint-main')?.insertBefore(fact, document.querySelector('.blueprint-grid'));
 document.querySelector('.no-go').textContent = `${S.decision} · MOCK / REFERENCE only; real provider endpoints and credentials absent; zero live calls. Snapshot: ${S.snapshot}.`;
 document.querySelector('.blueprint-main > .scope-note')?.replaceChildren(document.createTextNode('pipelineflow.png labels. Green DONE; yellow PARTIAL; red BLOCKED; blue DEFERRED. Local evidence never equals production readiness.'));

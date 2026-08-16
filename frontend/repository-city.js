@@ -3,6 +3,7 @@ const table = document.querySelector('#city-table');
 const detail = document.querySelector('#city-detail');
 const status = document.querySelector('#city-status');
 const S = window.VISUALIZATION_STATUS || (() => { const request = new XMLHttpRequest(); request.open('GET', 'visualization-status.json', false); request.send(); const data = JSON.parse(request.responseText); if (!data.commits || data.production_qualification !== false) throw new Error('visualization status mismatch'); return data; })();
+const banner=document.createElement('aside');banner.className='shared-status';banner.setAttribute('aria-label','Authoritative SRE snapshot');banner.innerHTML=`<strong>${S.decision}</strong><span>HEAD <code>${S.commits.head}</code> · tested ancestor <code>${S.commits.tested}</code> · migrations ${S.migrations.freshRun} (second run ${S.migrations.secondRun})</span><span>BDD ${S.statuses.bdd} · SRE ${S.statuses.sre} · test-operator ${S.statuses.qa} · production ${S.statuses.production}</span><span>${S.dirtyWorktree}</span>`;document.querySelector('main')?.prepend(banner);
 const freshness = document.querySelector('#city-freshness');
 const colors = {interface:'#168aad', service:'#6d4c9f', test:'#d27b2d', knowledge:'#3c8d68'};
 const safe = (value, fallback = 'Unavailable') => typeof value === 'string' && value.trim() ? value : fallback;
@@ -24,7 +25,7 @@ function render(payload) {
       const row = document.createElement('tr'); row.innerHTML = `<th scope="row">${building.path}</th><td>${Number.isFinite(building.loc) ? building.loc.toLocaleString() : 'Unavailable'}</td><td>${district.language}</td><td>${safe(building.tests)}</td><td><span class="status-chip ${currentStatus.toLowerCase()}">${currentStatus}</span></td><td>${safe(building.production)}</td>`; table.append(row);
     }); zone.append(block); map.append(zone);
   });
-  const stamp = safe(payload.generatedAt); freshness.textContent = `Snapshot generated ${stamp}. ${safe(payload.freshness)}. ${safe(payload.note)}`; status.textContent = `Map ready. ${S.decision} · core ${S.commits.implementation}; ${S.evidenceScope}. Prior recorded test run ${S.evidenceRun.runDate}.`; status.className = 'inline-status warning';
+  const stamp = safe(payload.generatedAt); freshness.textContent = `Snapshot generated ${stamp}. ${safe(payload.freshness)}. ${safe(payload.note)}`; status.textContent = `Map ready. ${S.decision} · HEAD ${S.commits.head}; tested ancestor ${S.commits.tested}. ${S.dirtyWorktree}`; status.className = 'inline-status warning';
 }
 const embeddedSnapshot = {
   generatedAt: 'checked-in static snapshot', freshness: 'stale-by-design',

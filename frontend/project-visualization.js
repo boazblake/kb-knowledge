@@ -18,7 +18,7 @@
   const statusClass = value => value.toLowerCase();
   const components = [
     ['files','Local files','done','Prototype/reference fixtures and browser verification.','Qualify real source contract.'],
-    ['connectors','Connectors','partial','12/12 connector contract tests passed; real provider endpoints and credentials absent.','Obtain approved non-production provider configuration, then rerun live integration.'],
+    ['connectors','Connectors','partial','Mock/reference contract evidence; real provider endpoints and credentials absent.','Obtain approved non-production provider configuration, then rerun live integration.'],
     ['sync','Batch sync + workflow','partial','Batch atomicity validated; live Temporal absent.','Use configured non-prod provider environment.'],
     ['staged-raw','Staged raw lifecycle','partial','Staged raw and orphan lifecycle validated; live KMS/S3 absent.','Use configured non-prod provider environment.'],
     ['authority','P4 PostgreSQL authority ledger','done','Semantic identity, authority sequence, outbox envelope, tombstone guards, and citation verification are implemented in reference core.','Production qualification remains open; authority remains correctness source.'],
@@ -37,7 +37,7 @@
   const roadmap = [
     ['Prototype/reference','Local fixtures and one-page hub','DONE','Browser-rendered reference evidence; not production.'],
     ['Prototype/reference','Backend remediation set','DONE','Atomicity, cursor semantics, staged raw/orphans, outbox ownership/retry, and canonical purge namespace locally validated.'],
-    ['Production-shaped non-prod','PostgreSQL authority and P4 observation validation','DONE','P4 identity, envelope, projection, barriers, lifecycle, provenance, and citation contracts; full suite 189 passed / 15 skipped.'],
+    ['Production-shaped non-prod','PostgreSQL authority and P4 observation validation','DONE','P4 identity, envelope, projection, barriers, lifecycle, provenance, and citation contracts; disposable PostgreSQL evidence remains non-production.'],
     ['Production-shaped non-prod','Live connector integration','PARTIAL','Exactly one next item: obtain approved non-production provider configuration, then rerun live integration.'],
     ['Production qualification/release','SEC/OPS and production release','BLOCKED','SEC/OPS NO-GO; deployment, RPO/RTO, SLO, and approval evidence absent.']
   ];
@@ -48,23 +48,24 @@
     ['tests','Python','test',[['tests/test_remediation_lane.py','Remediation lane','5/5 passing','DONE','custom local validation'],['tests/test_phase4_qa.py','Atomic acceptance','21/21 passing','DONE','targeted local matrix']]],
     ['docs','Markdown','knowledge',[['docs/pilot-readiness.md','Pilot readiness','reviewed','BLOCKED','SEC/OPS NO-GO'],['docs/runbook.md','Runbook','reviewed','PARTIAL','production rehearsal absent']]]
   ];
-  components[1][3] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}; real provider endpoints and credentials absent.`;
-  dependencies[0][1][2][2] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}`;
-  dependencies[2][1][0][2] = `Disposable PostgreSQL ${S.evidenceRun.disposablePostgresqlFull.passed}/${S.evidenceRun.disposablePostgresqlFull.failed}; targeted P4 ${S.evidenceRun.targetedP4.passed}/${S.evidenceRun.targetedP4.failed}`;
-  city[1][3][1][3] = `Nix full ${S.evidenceRun.nixFull.passed}/${S.evidenceRun.nixFull.failed}`;
-  city[2][3][0][3] = `Labeled scenarios ${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}`;
+  const run = window.visualizationRunLabel;
+  components[1][3] = `${run(S.evidenceRun.nix)}; real provider endpoints and credentials absent.`;
+  dependencies[0][1][2][2] = run(S.evidenceRun.nix);
+  dependencies[2][1][0][2] = `${run(S.evidenceRun.disposablePostgresql)}; ${run(S.evidenceRun.frontendBdd)}`;
+  city[1][3][1][3] = run(S.evidenceRun.nix);
+  city[2][3][0][3] = run(S.evidenceRun.frontendBdd);
   function $(selector) { return document.querySelector(selector); }
   const runLabel = run => `${run.passed}/${run.failed}`;
-  document.querySelector('#summary > div:first-child p:last-child').textContent = `Core ${S.commits.implementation}; ${S.evidenceScope}. Prior recorded test run ${S.evidenceRun.runDate}. Docs metadata ${S.commits.docs}. ${S.evidenceLabel}`;
+  document.querySelector('#summary > div:first-child p:last-child').textContent = `${S.evidenceScope} HEAD ${S.commits.head}; tested ancestor ${S.commits.tested}; run ${S.evidenceRun.runDate}. ${S.dirtyWorktree}`;
   const metricGrid = document.querySelector('.metric-grid');
   metricGrid.replaceChildren(...[
-    ['Nix full', runLabel(S.evidenceRun.nixFull), 'passed / failed'],
-    ['Disposable PostgreSQL', runLabel(S.evidenceRun.disposablePostgresqlFull), 'passed / failed'],
-    ['Targeted P4', runLabel(S.evidenceRun.targetedP4), 'passed / failed'],
-    ['Labeled scenarios', `${S.evidenceRun.labels.passed}/${S.evidenceRun.labels.total}`, 'passed / total']
+    [S.evidenceRun.nix.label, run(S.evidenceRun.nix), 'environment result'],
+    [S.evidenceRun.disposablePostgresql.label, run(S.evidenceRun.disposablePostgresql), 'environment result'],
+    [S.evidenceRun.frontendBdd.label, run(S.evidenceRun.frontendBdd), 'environment result'],
+    ['Migration replay', `${S.migrations.freshRun} / ${S.migrations.secondRun}`, 'fresh / second run']
   ].map(([label, value, suffix]) => { const item = document.createElement('div'); item.innerHTML = `<strong>${value}</strong><span>${label} ${suffix}</span>`; return item; }));
   $('#next-step').textContent = S.next;
-  $('#evidence-list').innerHTML = S.evidence.map(item => `<li>${esc(item)}</li>`).join('');
+  $('#evidence-list').innerHTML = [`HEAD ${S.commits.head}; tested ancestor ${S.commits.tested}`, `Migrations ${S.migrations.freshRun}; second run ${S.migrations.secondRun}`, `${run(S.evidenceRun.nix)} (${S.evidenceRun.nix.label})`, `${run(S.evidenceRun.disposablePostgresql)} (${S.evidenceRun.disposablePostgresql.label})`, `${run(S.evidenceRun.frontendBdd)} (${S.evidenceRun.frontendBdd.label})`, S.dirtyWorktree].map(item => `<li>${esc(item)}</li>`).join('');
   $('#scenario-list').innerHTML = S.scenarios.map(item => `<li>${esc(item)} <span class="status-chip done">PASS</span></li>`).join('');
   const p4 = S.p4;
   const p4Cards = [
