@@ -74,7 +74,8 @@ Next   Fix, rerun, define targets, repeat evidence [░░░░░░░░░�
 | FTS5 projection and restart rebuild | Implemented |
 | API `/v1/*` routes | Library factory; no service launcher |
 | Static UI | Shell only; no supported hosting/composition path |
-| Email, MIME, attachments, vectors, relationships, LLM, MCP | Deferred |
+| Email, MIME, attachments, vectors, relationships, MCP | Deferred |
+| OpenAI answer adapter | Opt-in only; sends bounded query/evidence to cloud; never use sensitive data |
 | Real-data pilot | **NO-GO** |
 
 QA/BDD/SRE evidence uses checked-in test-manifest provenance. Tests cover narrow fixture

@@ -87,10 +87,11 @@ recovery and operations, and real-data approval.
 
 ## Local/reference answer mode
 
-Default answer behavior is deterministic abstention. Enable generated answers only
-through explicit local Ollama opt-in, and require citations for every generated
-answer. Keep all inputs synthetic/local; this mode grants no real-data or production
-approval.
+Default answer behavior is deterministic abstention: `/v1/answer` returns no
+generated answer unless explicit local Ollama opt-in is configured. Enable generated
+answers only with `--ollama-model MODEL` or explicit `--openai-model MODEL`; endpoint must remain loopback for Ollama, requests
+have configured timeout, and every generated answer requires citations. Keep all
+inputs synthetic/local; this mode grants no real-data or production approval.
 
 Setup flow remains generic until project integration is defined:
 
@@ -105,6 +106,11 @@ Verified explicit opt-in serve usage is:
 Optional flags are `--ollama-endpoint LOOPBACK_ENDPOINT` and
 `--ollama-timeout SECONDS`. These flags activate only local/reference Ollama;
 provider configuration and injection/data-boundary follow-up remain required.
+
+OpenAI mode requires `OPENAI_API_KEY` in process environment only. It sends bounded
+query/evidence to cloud service; never use sensitive data. Install optional dependency
+with the `openai` extra. Timeout/retry flags are `--openai-timeout SECONDS` and
+`--openai-retries COUNT`. Deterministic default and production status do not change.
 
 LLM parent dependencies: citation contract (partial), provider configuration,
 injection/data boundary, and groundedness evaluation.

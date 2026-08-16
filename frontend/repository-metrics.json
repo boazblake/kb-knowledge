@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "snapshot": "b80da6c + d955b2c + edd8f23",
+  "snapshot": "314eb94",
   "generatedAt": "2026-08-15T00:00:00Z",
   "source": "checked-in static snapshot; no browser shell access",
   "freshness": "checked-in snapshot",
   "note": "Missing dependency/test metrics are unavailable, not zero. Status vocabulary: DONE, PARTIAL, BLOCKED, DEFERRED.",
   "decision": "Production NO-GO",
   "provider": {"endpointsConfigured": false, "credentialsConfigured": false, "liveCalls": 0, "externalConnector": false, "absent": ["KMS", "S3", "OIDC", "Temporal", "OTel"]},
-  "validation": {"postgresAuthorityPurgeRecovery": "21/21 passed", "customChecks": "5/5 passed", "migrations": "001-005 idempotent"},
+  "validation": {"nixFull": "221 passed / 34 skipped / 0 failed", "disposablePostgresqlFull": "221 passed / 0 skipped / 0 failed", "frontendBdd": "9 passed / 0 failed", "migrations": "1..7 / second run no-op", "targetedP4": "14 passed / 0 failed", "labeledScenarios": "21/21", "production_qualification": false},
   "districts": [
     {"path":"frontend","language":"HTML/CSS/JS","style":"interface","status":"DONE","buildings":[{"path":"frontend/index.html","loc":196,"bytes":12100,"tests":"browser verification","status":"DONE","production":"reference UI only"},{"path":"frontend/app.js","loc":653,"bytes":26000,"tests":"browser smoke","status":"PARTIAL","production":"reference UI only"},{"path":"frontend/styles.css","loc":127,"bytes":21000,"tests":"unavailable","status":"PARTIAL","production":"reference UI only"}]},
     {"path":"kb_pipeline","language":"Python","style":"service","status":"PARTIAL","buildings":[{"path":"kb_pipeline/storage.py","loc":620,"bytes":26000,"tests":"unit + integration","status":"PARTIAL","production":"local/reference"},{"path":"kb_pipeline/postgres_authority.py","loc":240,"bytes":9800,"tests":"PostgreSQL Nix narrow","status":"PARTIAL","production":"narrow slice only"},{"path":"kb_pipeline/security.py","loc":310,"bytes":12500,"tests":"OIDC local JWKS packet","status":"PARTIAL","production":"live provider absent"},{"path":"kb_pipeline/api.py","loc":190,"bytes":7800,"tests":"smoke","status":"PARTIAL","production":"deployment not qualified"}]},
