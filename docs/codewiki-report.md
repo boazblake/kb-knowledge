@@ -1,20 +1,24 @@
+# Knowledge Pipeline — CodeWiki Report
+
+> **Status: REFERENCE / LOCAL ONLY.** Real-data pilot is **NO-GO**. This report describes checked-in behavior, not production readiness.
+
 ## Overview
 
 Knowledge Pipeline ingests local or connector-provided records, canonicalizes them, stores durable state and raw artifacts, builds retrieval projections, applies ACL filtering, and returns cited evidence or an optional grounded answer.
 
 Runtime baseline: Python 3.11, Python standard-library HTTP server, static JavaScript frontend, and Nix tooling. Provider integrations enter through ports and adapters.
 
-| Capability                                                        | Status                                                             |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Local file scan and UTF-8 canonicalization                        | **Implemented — reference**                                        |
-| SQLite persistence and FTS5 lexical search                        | **Implemented — reference**                                        |
-| PostgreSQL authority path                                         | **Implemented — synthetic contract; live evidence unavailable**    |
-| ACL-filtered retrieval and bounded answers                        | **Implemented — reference**                                        |
-| HTTP status/search/answer/report routes                           | **Reference/demo API only — production wiring not implemented**    |
-| OIDC/JWKS, KMS, S3, workflow, telemetry adapters                  | **Partial — adapter classes exist; CLI composition is incomplete** |
-| External connectors, MIME, email, attachments, relationships, MCP | **Deferred / incomplete**                                          |
-| Production hosting, launcher, CI, observability, on-call          | **Not found or incomplete**                                        |
-| Real-data pilot                                                   | **NO-GO**                                                          |
+| Capability | Status |
+|---|---|
+| Local file scan and UTF-8 canonicalization | **Implemented — reference** |
+| SQLite persistence and FTS5 lexical search | **Implemented — reference** |
+| PostgreSQL authority path | **Implemented — synthetic contract; live evidence unavailable** |
+| ACL-filtered retrieval and bounded answers | **Implemented — reference** |
+| HTTP status/search/answer/report routes | **Reference/demo API only — production wiring not implemented** |
+| OIDC/JWKS, KMS, S3, workflow, telemetry adapters | **Partial — adapter classes exist; CLI composition is incomplete** |
+| External connectors, MIME, email, attachments, relationships, MCP | **Deferred / incomplete** |
+| Production hosting, launcher, CI, observability, on-call | **Not found or incomplete** |
+| Real-data pilot | **NO-GO** |
 
 ## Repository map
 
@@ -33,8 +37,6 @@ kb-pipeline/
 `pyproject.toml` defines project `kb-pipeline` version `0.1.0`, requires Python `>=3.11`, declares the PostgreSQL runtime dependency, and provides `openai`, `production`, and `test` optional dependency groups. It also configures pytest to discover tests under `tests/`. No container definition, CI workflow, or deployment launcher was found.
 
 ## Architecture diagrams
-
-[pipelineflow](./pipelineflow.png)
 
 ```mermaid
 flowchart LR
@@ -65,30 +67,30 @@ Production adapter classes exist, but CLI composition/launcher wiring is incompl
 
 ## Component guide
 
-| Component                      | Responsibility                                                                                                       | Primary source                                                                                 |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Domain model                   | `Input`, `RawRecord`, `SourceVersion`, `ACL`, `CanonicalDocument`, hits, audit events                                | [`domain.py`](../kb_pipeline/domain.py)                                                        |
-| Connector and canonicalization | Acquire records; convert payloads to canonical text and metadata                                                     | [`adapters.py`](../kb_pipeline/adapters.py)                                                    |
-| Protocol spine                 | Namespaces, stable object keys, envelopes, changes, permissions, provenance, ledger/store/projection/query contracts | [`protocol.py`](../kb_pipeline/protocol.py)                                                    |
-| Service orchestration          | Ingest, reconcile, tombstone, revoke, retrieve, answer, health, purge                                                | [`service.py`](../kb_pipeline/service.py)                                                      |
-| Composition                    | Validates mode/dependency compatibility and assembles runtime                                                        | [`composition.py`](../kb_pipeline/composition.py)                                              |
-| SQLite reference store         | Documents, raw metadata, FTS5, audit, tombstones, revocations, checkpoints, purge state, embeddings                  | [`storage.py`](../kb_pipeline/storage.py)                                                      |
-| PostgreSQL authority boundary  | Authority-oriented ingestion service and repository                                                                  | [`postgres_authority.py`](../kb_pipeline/postgres_authority.py)                                |
-| Security                       | Principal, tenant/source authorization, OIDC/JWKS and test KMS boundaries                                            | [`security.py`](../kb_pipeline/security.py)                                                    |
-| Provider adapters              | S3/KMS, managed OIDC, Temporal, OpenTelemetry boundaries                                                             | [`production_adapters.py`](../kb_pipeline/production_adapters.py)                              |
-| HTTP API                       | Threading stdlib server, auth, limits, static assets, health/readiness                                               | [`api.py`](../kb_pipeline/api.py)                                                              |
-| CLI                            | Serve, index, rebuild, semantic/vision maintenance, backup/restore, evidence validation                              | [`cli.py`](../kb_pipeline/cli.py)                                                              |
-| Embeddings                     | Bounded Ollama embedding client, vector validation, packing, and input hashing                                       | [`embedding.py`](../kb_pipeline/embedding.py)                                                  |
-| Vision                         | Bounded local Ollama image-observation adapter and schema validation                                                 | [`vision.py`](../kb_pipeline/vision.py)                                                        |
-| Answering                      | Deterministic abstention plus explicit Ollama/OpenAI answer adapters and citation validation                         | [`answer.py`](../kb_pipeline/answer.py)                                                        |
-| Mock environment               | Synthetic OIDC, KMS, S3, workflow, telemetry, and connector fixtures; reference only                                 | [`mock_environment.py`](../kb_pipeline/mock_environment.py)                                    |
-| Nango adapter                  | Synthetic Nango-shaped poll/webhook envelope adapter; transport and projections remain external                      | [`nango_adapter.py`](../kb_pipeline/nango_adapter.py)                                          |
-| Benchmark harness              | Synthetic-local SLO/load measurements; does not export telemetry or qualify production                               | [`benchmark.py`](../kb_pipeline/benchmark.py)                                                  |
-| Gate 6 tooling                 | Synthetic-local qualification and SQLite backup/restore recovery rehearsals                                          | [`gate6.py`](../kb_pipeline/gate6.py), [`gate6_recovery.py`](../kb_pipeline/gate6_recovery.py) |
-| Ingestion slice                | Workflow-shaped ingestion boundary                                                                                   | [`ingestion_slice.py`](../kb_pipeline/ingestion_slice.py)                                      |
-| Temporal boundary              | Temporal-facing ingestion orchestration                                                                              | [`temporal_ingestion.py`](../kb_pipeline/temporal_ingestion.py)                                |
-| Telemetry                      | Redacted metrics/tracing boundary                                                                                    | [`telemetry.py`](../kb_pipeline/telemetry.py)                                                  |
-| Purge                          | Retention decisions, intents, receipts, and recovery state                                                           | [`purge.py`](../kb_pipeline/purge.py)                                                          |
+| Component | Responsibility | Primary source |
+|---|---|---|
+| Domain model | `Input`, `RawRecord`, `SourceVersion`, `ACL`, `CanonicalDocument`, hits, audit events | [`domain.py`](../kb_pipeline/domain.py) |
+| Connector and canonicalization | Acquire records; convert payloads to canonical text and metadata | [`adapters.py`](../kb_pipeline/adapters.py) |
+| Protocol spine | Namespaces, stable object keys, envelopes, changes, permissions, provenance, ledger/store/projection/query contracts | [`protocol.py`](../kb_pipeline/protocol.py) |
+| Service orchestration | Ingest, reconcile, tombstone, revoke, retrieve, answer, health, purge | [`service.py`](../kb_pipeline/service.py) |
+| Composition | Validates mode/dependency compatibility and assembles runtime | [`composition.py`](../kb_pipeline/composition.py) |
+| SQLite reference store | Documents, raw metadata, FTS5, audit, tombstones, revocations, checkpoints, purge state, embeddings | [`storage.py`](../kb_pipeline/storage.py) |
+| PostgreSQL authority boundary | Authority-oriented ingestion service and repository | [`postgres_authority.py`](../kb_pipeline/postgres_authority.py) |
+| Security | Principal, tenant/source authorization, OIDC/JWKS and test KMS boundaries | [`security.py`](../kb_pipeline/security.py) |
+| Provider adapters | S3/KMS, managed OIDC, Temporal, OpenTelemetry boundaries | [`production_adapters.py`](../kb_pipeline/production_adapters.py) |
+| HTTP API | Threading stdlib server, auth, limits, static assets, health/readiness | [`api.py`](../kb_pipeline/api.py) |
+| CLI | Serve, index, rebuild, semantic/vision maintenance, backup/restore, evidence validation | [`cli.py`](../kb_pipeline/cli.py) |
+| Embeddings | Bounded Ollama embedding client, vector validation, packing, and input hashing | [`embedding.py`](../kb_pipeline/embedding.py) |
+| Vision | Bounded local Ollama image-observation adapter and schema validation | [`vision.py`](../kb_pipeline/vision.py) |
+| Answering | Deterministic abstention plus explicit Ollama/OpenAI answer adapters and citation validation | [`answer.py`](../kb_pipeline/answer.py) |
+| Mock environment | Synthetic OIDC, KMS, S3, workflow, telemetry, and connector fixtures; reference only | [`mock_environment.py`](../kb_pipeline/mock_environment.py) |
+| Nango adapter | Synthetic Nango-shaped poll/webhook envelope adapter; transport and projections remain external | [`nango_adapter.py`](../kb_pipeline/nango_adapter.py) |
+| Benchmark harness | Synthetic-local SLO/load measurements; does not export telemetry or qualify production | [`benchmark.py`](../kb_pipeline/benchmark.py) |
+| Gate 6 tooling | Synthetic-local qualification and SQLite backup/restore recovery rehearsals | [`gate6.py`](../kb_pipeline/gate6.py), [`gate6_recovery.py`](../kb_pipeline/gate6_recovery.py) |
+| Ingestion slice | Workflow-shaped ingestion boundary | [`ingestion_slice.py`](../kb_pipeline/ingestion_slice.py) |
+| Temporal boundary | Temporal-facing ingestion orchestration | [`temporal_ingestion.py`](../kb_pipeline/temporal_ingestion.py) |
+| Telemetry | Redacted metrics/tracing boundary | [`telemetry.py`](../kb_pipeline/telemetry.py) |
+| Purge | Retention decisions, intents, receipts, and recovery state | [`purge.py`](../kb_pipeline/purge.py) |
 
 ## Data flow
 
@@ -113,15 +115,15 @@ This path currently covers authenticated ingestion, authority, outbox, checkpoin
 
 `create_server()` returns a `ThreadingHTTPServer`; it does not provide a service launcher or production hosting model.
 
-| Method and route       | Auth                      | Behavior                                                                                         |
-| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /v1/health`       | Public                    | Liveness response `{"status":"ok"}`                                                              |
-| `GET /v1/ready`        | Public                    | Readiness; returns `503` when storage, replay, gaps, dead letters, or projection lag fail checks |
-| `GET /v1/status`       | Auth; admin in production | **Reference/demo route:** store status and service health when supported                         |
-| `GET /v1/report`       | Auth; admin in production | **Reference/demo route:** counts, ledger/outbox, projection, readiness summary when supported    |
-| `GET /v1/search?q=...` | Auth                      | **Reference/demo route:** ACL-filtered hits; query and result limits apply                       |
-| `POST /v1/answer`      | Auth                      | **Reference/demo route:** JSON `{"query":"..."}`; bounded evidence and validated citations       |
-| Static frontend paths  | Public                    | Allow-listed files under configured frontend root; sets HttpOnly `kb_session` cookie             |
+| Method and route | Auth | Behavior |
+|---|---|---|
+| `GET /v1/health` | Public | Liveness response `{"status":"ok"}` |
+| `GET /v1/ready` | Public | Readiness; returns `503` when storage, replay, gaps, dead letters, or projection lag fail checks |
+| `GET /v1/status` | Auth; admin in production | **Reference/demo route:** store status and service health when supported |
+| `GET /v1/report` | Auth; admin in production | **Reference/demo route:** counts, ledger/outbox, projection, readiness summary when supported |
+| `GET /v1/search?q=...` | Auth | **Reference/demo route:** ACL-filtered hits; query and result limits apply |
+| `POST /v1/answer` | Auth | **Reference/demo route:** JSON `{"query":"..."}`; bounded evidence and validated citations |
+| Static frontend paths | Public | Allow-listed files under configured frontend root; sets HttpOnly `kb_session` cookie |
 
 These four routes are reference/demo API surfaces, not production API contracts. Production HTTP retrieval/answer/report wiring is **not implemented**; current PostgreSQL composition uses `PostgresIngestionService`, which does not provide those methods. Demo/reference modes print process-local Bearer token. Production accepts configured OIDC Bearer tokens only and issues no local token. Errors use JSON fields `code`, `message`, `details`, and `trace_id`.
 
@@ -144,19 +146,19 @@ CLI `--mode` exposes `demo`, `mock`, and `production`. `RuntimeConfig` also vali
 
 ## Configuration
 
-| Setting                | Default / requirement                                                                                             | Notes                                                             |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Python                 | `>=3.11`                                                                                                          | Nix pins supported toolchain; rerun evidence in supported runtime |
-| Database               | CLI positional `DB`                                                                                               | Demo uses SQLite; mock/production require PostgreSQL DSN          |
-| Source root            | Current directory                                                                                                 | Required outside mock/production                                  |
-| Host/port              | `127.0.0.1:8080`                                                                                                  | Port `0` supports isolated tests                                  |
-| Query length           | 512 chars                                                                                                         | Runtime range: 1–4096                                             |
-| Results                | 100                                                                                                               | Runtime range: 1–1000                                             |
-| Request body           | 16 KiB API handler default; 1 MiB runtime config default                                                          | Runtime range capped at 50 MiB                                    |
-| Projection lag         | `0`                                                                                                               | Readiness fails above configured maximum                          |
-| Production OIDC        | `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`                                                                   | Required by CLI production path                                   |
-| Raw storage            | Filesystem in demo; S3 + KMS boundary for production                                                              | Production encryption adapter required                            |
-| Answering              | Deterministic abstention                                                                                          | Ollama/OpenAI only with explicit flags                            |
+| Setting | Default / requirement | Notes |
+|---|---|---|
+| Python | `>=3.11` | Nix pins supported toolchain; rerun evidence in supported runtime |
+| Database | CLI positional `DB` | Demo uses SQLite; mock/production require PostgreSQL DSN |
+| Source root | Current directory | Required outside mock/production |
+| Host/port | `127.0.0.1:8080` | Port `0` supports isolated tests |
+| Query length | 512 chars | Runtime range: 1–4096 |
+| Results | 100 | Runtime range: 1–1000 |
+| Request body | 16 KiB API handler default; 1 MiB runtime config default | Runtime range capped at 50 MiB |
+| Projection lag | `0` | Readiness fails above configured maximum |
+| Production OIDC | `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL` | Required by CLI production path |
+| Raw storage | Filesystem in demo; S3 + KMS boundary for production | Production encryption adapter required |
+| Answering | Deterministic abstention | Ollama/OpenAI only with explicit flags |
 | Production composition | Required injected providers: OIDC, KMS, payload encryption, encrypted raw storage, workflow, telemetry, connector | CLI currently injects OIDC only; startup validation rejects setup |
 
 ## Persistence and recovery
