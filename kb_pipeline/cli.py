@@ -240,6 +240,20 @@ def _answerer_from_args(command, model=None, endpoint=None, timeout=None):
     return OllamaAnswerer(endpoint=endpoint, model=model, timeout_seconds=timeout)
 
 
+def _serve_startup_output(address, mode, token):
+    """Return safe, copyable startup guidance for local/reference servers."""
+    lines = [f"serving on {address}"]
+    if mode in {"demo", "mock"}:
+        lines.extend((
+            f"local-only Bearer token (valid until server stops): {token}",
+            f"API use: Authorization: Bearer {token}",
+            "Browser use: open local UI; it receives an HttpOnly kb_session cookie.",
+        ))
+    else:
+        lines.append("production auth: use configured OIDC Bearer token; no local token issued")
+    return "\n".join(lines)
+
+
 def _vision_from_args(command, model=None, endpoint=None, timeout=None):
     if command not in {"index", "vision-reextract"} and any(value is not None for value in (model, endpoint, timeout)):
         raise ValueError("vision flags are supported only with index or vision-reextract")
@@ -313,7 +327,9 @@ def main():
             identity_provider = ManagedOIDCValidator(issuer, audience, jwks_url)
         config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend", answerer=answerer, vision_observer=vision_observer, semantic_embedder=semantic_embedder, identity_provider=identity_provider, oidc_issuer=os.environ.get("OIDC_ISSUER"), oidc_audience=os.environ.get("OIDC_AUDIENCE"), oidc_jwks_url=os.environ.get("OIDC_JWKS_URL")); app = compose(config); print(config.status["banner"], flush=True) if config.mode == "mock" else None
         if a.command == "serve":
-            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production"); print(f"serving on {server.server_address[0]}:{server.server_address[1]}", flush=True); server.serve_forever()
+            server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production")
+            print(_serve_startup_output(f"{server.server_address[0]}:{server.server_address[1]}", config.mode, token), flush=True)
+            server.serve_forever()
         else:
             if a.command == "index": app.service.reconcile(app.connector, "startup")
             app.store.rebuild_index()

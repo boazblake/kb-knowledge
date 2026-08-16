@@ -5,16 +5,25 @@
 1. Use disposable directories and synthetic UTF-8 plaintext files.
 2. Compose `SQLiteStore`, `KnowledgeService`, `LocalFilesConnector`,
    `PlainTextCanonicalizer`, `LexicalIndex`, and explicit injected ACL resolver.
-3. Start through `python -m kb_pipeline.cli serve DB --source-root ROOT --port 8080`;
-   retain generated token locally. Routes are `/v1/health`, `/v1/ready`, `/v1/status`,
-   and `/v1/search?q=...`; UI is same-origin at `/`.
+3. Start through `python -m kb_pipeline.cli serve DB --source-root ROOT --port 8080`.
+   After `serving on`, CLI prints a **local-only** Bearer token and copyable
+   `Authorization: Bearer TOKEN` guidance. Token exists only in process memory and
+   expires when server stops; it is not production credential. Opening UI/static
+   routes sets HttpOnly, `SameSite=Strict`, `kb_session` cookie for browser use.
+   Public routes are `/v1/health`, `/v1/ready`, and static UI assets. Authenticated
+   routes are `/v1/status`, `/v1/report`, `/v1/search?q=...`, and `POST /v1/answer`.
+   Send either Bearer token or session cookie for demo/reference routes.
 4. Verify authorized search, deny-by-default ACL, source URI, SHA-256 version,
    tombstone, revocation, incomplete-scan behavior, and restart search.
 5. Rebuild index with `python -m kb_pipeline.cli index-rebuild DB` when projection
    is suspected stale.
 6. Stop and discard demo data if real data or an authorization concern appears.
 
-Protocol-demo path is local and synthetic only. Loopback reader/admin identities are short-lived; never treat them as production auth. External OIDC/KMS remain injected ports; no provider integration exists. Production rejects test crypto.
+Protocol-demo path is local and synthetic only. Demo/reference Bearer token is
+process-lifetime; never treat it as production auth. Production ignores local token
+map and requires configured OIDC Bearer tokens; no production secret is printed.
+External OIDC/KMS remain injected ports; no provider integration exists. Production
+rejects test crypto.
 
 ## Synthetic Nango adapter experiment
 

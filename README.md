@@ -162,6 +162,16 @@ local/reference behavior only.
 LLM parent dependencies remain: citation contract (partial), provider configuration,
 injection/data boundary, and groundedness evaluation.
 
+## Local serve authentication
+
+After `serving on`, demo and mock modes print a local-only Bearer token plus
+`Authorization: Bearer TOKEN` usage. Token stays in memory and is valid until that
+server process stops. It is never a production credential. Opening local UI/static
+assets sets an HttpOnly `kb_session` cookie; API clients may use either cookie or
+Bearer token in demo/reference mode. `/v1/health`, `/v1/ready`, and static assets are
+public. `/v1/status`, `/v1/report`, `/v1/search`, and `POST /v1/answer` require auth.
+Production prints no local token and accepts only configured OIDC Bearer auth.
+
 ## Explicit real-data NO-GO blockers
 
 Ledger authority/outbox; namespace/auth isolation; replay/checkpoints; purge/recovery;
