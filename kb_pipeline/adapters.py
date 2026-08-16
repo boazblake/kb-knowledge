@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import fnmatch
+import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from .domain import ScanResult
 from .domain import Input, RawRecord, SourceVersion, CanonicalDocument, ACL
@@ -41,49 +44,98 @@ def is_valid_jpeg(payload: bytes) -> bool:
 
 class LocalFilesConnector:
     name = "local-files"
+    DEFAULT_IGNORED_DIRECTORIES = frozenset({
+        ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "vendor",
+        "build", "dist", "out", "target", "coverage", "__pycache__",
+        ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox",
+        ".next", ".turbo", ".terraform",
+    })
+    DEFAULT_IGNORED_FILE_PATTERNS = (
+        ".env", ".env.*", ".DS_Store", "*.pem", "*.key", "*.p12", "*.pfx",
+        "*.secret", "*.secrets", "credentials.*", "secrets.*",
+    )
+
     def __init__(self, root: Path, max_files: int = 10000, max_bytes: int = 100 * 1024 * 1024,
-                 provider: str = "local", tenant: str = "default", source_instance: str | None = None):
+                 provider: str = "local", tenant: str = "default", source_instance: str | None = None,
+                 *, include_ignored: bool = False, ignore_directories: Iterable[str] = (),
+                 ignore_file_patterns: Iterable[str] = ()):
         self.root = root.expanduser().resolve()
         if not self.root.is_dir(): raise ValueError("root must be a directory")
         self.max_files, self.max_bytes = max_files, max_bytes
         self.provider, self.tenant = provider, tenant
         self.source_instance = source_instance or str(self.root)
+        self.include_ignored = include_ignored
+        self.ignore_directories = frozenset(ignore_directories)
+        self.ignore_file_patterns = tuple(ignore_file_patterns)
+
+    def _directory_ignored(self, name: str) -> bool:
+        return not self.include_ignored and name in self.DEFAULT_IGNORED_DIRECTORIES | self.ignore_directories
+
+    def _file_ignore_reason(self, name: str) -> str | None:
+        if self.include_ignored:
+            return None
+        patterns = self.DEFAULT_IGNORED_FILE_PATTERNS + self.ignore_file_patterns
+        return next((f"sensitive metadata pattern: {pattern}" for pattern in patterns
+                     if fnmatch.fnmatchcase(name, pattern)), None)
+
+    def is_ignored_path(self, relative_path: str) -> bool:
+        """Tell reconciliation that omitted paths are outside snapshot authority."""
+        if self.include_ignored:
+            return False
+        parts = Path(relative_path).parts
+        return any(self._directory_ignored(part) for part in parts[:-1]) or bool(self._file_ignore_reason(parts[-1]))
     def read(self):
         return iter(self.scan().records)
     def scan(self):
-        records, total = [], 0
+        records, exclusions, total = [], [], 0
         try:
-            paths = sorted(self.root.rglob("*"))
-            for path in paths:
-                if path.is_symlink():
-                    return ScanResult(tuple(records), False, "symlink encountered")
-                if not path.is_file(): continue
-                resolved = path.resolve()
-                if self.root not in resolved.parents: return ScanResult(tuple(records), False, "path escaped root")
-                size = path.stat().st_size
-                if len(records) >= self.max_files or total + size > self.max_bytes:
-                    return ScanResult(tuple(records), False, "scan limit exceeded")
-                payload = path.read_bytes(); total += len(payload)
-                rel = str(path.relative_to(self.root))
-                if is_jpeg(payload) and not is_valid_jpeg(payload):
-                    continue
-                if not is_jpeg(payload):
-                    try:
-                        text_probe = payload.decode("utf-8")
-                    except UnicodeDecodeError:
+            for current, directories, files in os.walk(self.root, topdown=True, followlinks=False):
+                current_path = Path(current)
+                kept_directories = []
+                for name in sorted(directories):
+                    path = current_path / name
+                    rel = str(path.relative_to(self.root))
+                    if path.is_symlink():
+                        return ScanResult(tuple(records), False, "symlink encountered", tuple(exclusions))
+                    if self._directory_ignored(name):
+                        exclusions.append((rel, f"ignored directory: {name}"))
+                    else:
+                        kept_directories.append(name)
+                directories[:] = kept_directories
+                for name in sorted(files):
+                    path = current_path / name
+                    rel = str(path.relative_to(self.root))
+                    if path.is_symlink():
+                        return ScanResult(tuple(records), False, "symlink encountered", tuple(exclusions))
+                    if (reason := self._file_ignore_reason(name)):
+                        exclusions.append((rel, reason))
                         continue
-                    if "\x00" in text_probe:
+                    resolved = path.resolve()
+                    if self.root not in resolved.parents:
+                        return ScanResult(tuple(records), False, "path escaped root", tuple(exclusions))
+                    size = path.stat().st_size
+                    if len(records) >= self.max_files or total + size > self.max_bytes:
+                        return ScanResult(tuple(records), False, "scan limit exceeded", tuple(exclusions))
+                    payload = path.read_bytes(); total += len(payload)
+                    if is_jpeg(payload) and not is_valid_jpeg(payload):
                         continue
-                metadata = ({"mime_type": "image/jpeg", "byte_length": str(len(payload)),
-                             "content_hash": hashlib.sha256(payload).hexdigest()}
-                            if is_jpeg(payload) else {})
-                records.append(Input(self.name, rel, payload, path.as_uri(),
-                                     metadata=metadata,
-                                     provider=self.provider, tenant=self.tenant,
-                                     source_instance=self.source_instance))
+                    if not is_jpeg(payload):
+                        try:
+                            text_probe = payload.decode("utf-8")
+                        except UnicodeDecodeError:
+                            continue
+                        if "\x00" in text_probe:
+                            continue
+                    metadata = ({"mime_type": "image/jpeg", "byte_length": str(len(payload)),
+                                 "content_hash": hashlib.sha256(payload).hexdigest()}
+                                if is_jpeg(payload) else {})
+                    records.append(Input(self.name, rel, payload, path.as_uri(),
+                                         metadata=metadata,
+                                         provider=self.provider, tenant=self.tenant,
+                                         source_instance=self.source_instance))
         except OSError as exc:
-            return ScanResult(tuple(records), False, str(exc))
-        return ScanResult(tuple(records), True)
+            return ScanResult(tuple(records), False, str(exc), tuple(exclusions))
+        return ScanResult(tuple(records), True, exclusions=tuple(exclusions))
 
 
 class ContentAwareCanonicalizer:

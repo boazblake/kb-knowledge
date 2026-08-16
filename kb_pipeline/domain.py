@@ -87,3 +87,4 @@ class ScanResult:
     records: tuple[Input, ...]
     complete: bool
     reason: str | None = None
+    exclusions: tuple[tuple[str, str], ...] = ()

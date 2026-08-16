@@ -178,7 +178,8 @@ class KnowledgeService:
         deleted = 0
         if scan.complete:
             for doc in self.store.all():
-                if doc.source.source_id not in seen and doc.source.source_uri.startswith("file:"):
+                ignored = getattr(connector, "is_ignored_path", lambda _: False)(doc.source.source_id)
+                if doc.source.source_id not in seen and not ignored and doc.source.source_uri.startswith("file:"):
                     self.tombstone(doc.document_id, job_id); deleted += 1
         if hasattr(self.store, "checkpoint"):
             with self._writer: self.store.checkpoint(connector.name, job_id, scan.complete)

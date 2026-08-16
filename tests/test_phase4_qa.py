@@ -501,6 +501,16 @@ class Phase4BackendQA(unittest.TestCase):
             self.assertEqual(0, result["deleted"])
             self.assertEqual(1, len(service.search("known", "reader")))
 
+    def test_ignored_paths_do_not_trigger_tombstone_inference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / ".git").mkdir()
+            (root / ".git" / "old.txt").write_text("old")
+            service = make_service()
+            service.ingest(item(".git/old.txt", b"old"), "seed")
+            result = service.reconcile(LocalFilesConnector(root), "snapshot")
+            self.assertTrue(result["complete"])
+            self.assertEqual(0, result["deleted"])
+
     def test_protocol_state_and_projection_are_tenant_scoped(self):
         """Same object IDs in separate tenant namespaces must not overwrite."""
         def tenant_change(tenant, text):
