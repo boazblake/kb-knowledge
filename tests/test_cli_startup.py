@@ -28,6 +28,7 @@ class ServeStartupOutputTests(unittest.TestCase):
             "/v1/answer",
             "deterministic abstention",
             "--ollama-model MODEL",
+            "OPENAI_API_KEY",
             "OIDC Bearer tokens",
         ):
             self.assertIn(phrase, runbook)

@@ -8,7 +8,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from types import SimpleNamespace
 
-from kb_pipeline.answer import AnswerUnavailable, AnswerValidationError, OllamaAnswerer, validate_answer_result
+from kb_pipeline.answer import (AnswerUnavailable, AnswerValidationError, OllamaAnswerer,
+                                OpenAIAnswerer, validate_answer_result)
 from kb_pipeline.api import create_server
 from kb_pipeline.composition import RuntimeConfig, compose
 from kb_pipeline.service import KnowledgeService
@@ -29,6 +30,46 @@ class CapturingAnswerer:
 
 
 class AnswerTests(unittest.TestCase):
+    def test_openai_request_is_structured_bounded_and_evidence_only(self):
+        class Responses:
+            def __init__(self): self.kwargs = None
+            def create(self, **kwargs):
+                self.kwargs = kwargs
+                return SimpleNamespace(output_text=json.dumps({"answer": "supported", "grounded": True, "citations": ["E1"]}))
+        responses = Responses()
+        evidence = ({"citation_id": "E1", "title": "t", "snippet": "s", "provenance": []},)
+        answer = OpenAIAnswerer("gpt-test", timeout_seconds=7, max_retries=1,
+                                client=SimpleNamespace(responses=responses)).answer("q", evidence)
+        self.assertEqual(["E1"], answer["citations"])
+        self.assertEqual("gpt-test", responses.kwargs["model"])
+        self.assertFalse(responses.kwargs["store"])
+        self.assertEqual("json_schema", responses.kwargs["text"]["format"]["type"])
+        self.assertIn("<evidence>", responses.kwargs["input"])
+        self.assertIn('"citation_id":"E1"', responses.kwargs["input"])
+        with self.assertRaises(AnswerValidationError):
+            OpenAIAnswerer("gpt-test", client=SimpleNamespace(responses=responses)).answer("q", ({"snippet": "x" * 100000},))
+
+    def test_openai_malformed_and_unsupported_citation_fail_closed(self):
+        evidence = ({"citation_id": "E1", "title": "t", "snippet": "s", "provenance": []},)
+        for output in ("not-json", json.dumps({"answer": "x", "grounded": True, "citations": ["E2"]})):
+            client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_: SimpleNamespace(output_text=output)))
+            with self.assertRaises(AnswerValidationError):
+                OpenAIAnswerer("gpt-test", client=client).answer("q", evidence)
+
+    def test_openai_provider_failures_are_safe_and_unavailable(self):
+        evidence = ({"citation_id": "E1", "title": "t", "snippet": "s", "provenance": []},)
+        for error in (TimeoutError("secret"), ConnectionError("secret")):
+            client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_: (_ for _ in ()).throw(error)))
+            with self.assertRaises(AnswerUnavailable) as raised:
+                OpenAIAnswerer("gpt-test", client=client).answer("q", evidence)
+            self.assertNotIn("secret", str(raised.exception))
+        for status in (401, 429, 500, 503):
+            error = type("SDKStatusError", (Exception,), {"status_code": status})("secret")
+            def fail(**kwargs):
+                raise error
+            client = SimpleNamespace(responses=SimpleNamespace(create=fail))
+            with self.assertRaises(AnswerUnavailable):
+                OpenAIAnswerer("gpt-test", client=client).answer("q", evidence)
     def test_default_answer_is_deterministic_abstention(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

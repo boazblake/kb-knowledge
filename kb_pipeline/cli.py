@@ -7,7 +7,7 @@ from pathlib import Path
 from .storage import SQLiteStore, database_quiesce_lock
 from .composition import RuntimeConfig, compose
 from .api import create_server
-from .answer import OllamaAnswerer
+from .answer import OllamaAnswerer, OpenAIAnswerer
 from .vision import LocalOllamaVisionObserver
 from .embedding import OllamaEmbedder, input_hash
 from .production_adapters import ManagedOIDCValidator
@@ -218,10 +218,23 @@ def _restore(database: Path, bundle: Path, failure_hooks=()):
             raise
 
 
-def _answerer_from_args(command, model=None, endpoint=None, timeout=None):
+def _answerer_from_args(command, model=None, endpoint=None, timeout=None,
+                        openai_model=None, openai_timeout=None, openai_retries=None):
     """Build answer provider only from explicit serve flags; never discover config."""
-    if command != "serve" and any(value is not None for value in (model, endpoint, timeout)):
+    if command != "serve" and any(value is not None for value in (model, endpoint, timeout, openai_model, openai_timeout, openai_retries)):
         raise ValueError("Ollama flags are supported only with serve")
+    if any(value is not None for value in (openai_model, openai_timeout, openai_retries)):
+        if any(value is not None for value in (model, endpoint, timeout)):
+            raise ValueError("OpenAI and Ollama answerers cannot both be configured")
+        if openai_model is None:
+            raise ValueError("--openai-model is required to activate OpenAI")
+        openai_timeout = 30.0 if openai_timeout is None else openai_timeout
+        openai_retries = 2 if openai_retries is None else openai_retries
+        if not math.isfinite(openai_timeout) or openai_timeout <= 0 or openai_timeout > 120:
+            raise ValueError("--openai-timeout must be greater than 0 and at most 120 seconds")
+        if openai_retries < 0 or openai_retries > 5:
+            raise ValueError("--openai-retries must be between 0 and 5")
+        return OpenAIAnswerer(openai_model, openai_timeout, openai_retries)
     if model is None:
         if endpoint is not None or timeout is not None:
             raise ValueError("--ollama-model is required to activate Ollama")
@@ -240,7 +253,7 @@ def _answerer_from_args(command, model=None, endpoint=None, timeout=None):
     return OllamaAnswerer(endpoint=endpoint, model=model, timeout_seconds=timeout)
 
 
-def _serve_startup_output(address, mode, token):
+def _serve_startup_output(address, mode, token, cloud_answerer=False):
     """Return safe, copyable startup guidance for local/reference servers."""
     lines = [f"serving on {address}"]
     if mode in {"demo", "mock"}:
@@ -251,6 +264,8 @@ def _serve_startup_output(address, mode, token):
         ))
     else:
         lines.append("production auth: use configured OIDC Bearer token; no local token issued")
+    if cloud_answerer:
+        lines.append("WARNING: OpenAI mode sends bounded query/evidence to cloud; do not use sensitive data")
     return "\n".join(lines)
 
 
@@ -300,10 +315,10 @@ def _semantic_reindex(database, embedder, full=False, batch_size=16):
 
 
 def main():
-    p = argparse.ArgumentParser(); p.add_argument("command", choices=["serve", "index", "rebuild", "index-rebuild", "semantic-reindex", "vision-reextract", "backup", "restore", "pilot-evidence"]); p.add_argument("database", type=Path); p.add_argument("target", type=Path, nargs="?"); p.add_argument("--source-root", type=Path, default=Path.cwd()); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8080); p.add_argument("--mode", choices=["demo", "mock", "production"], default="demo"); p.add_argument("--result-json", type=Path, help="validated QA result JSON (required for pilot-evidence)"); p.add_argument("--ollama-model", help="explicitly activate loopback Ollama answerer"); p.add_argument("--ollama-endpoint"); p.add_argument("--ollama-timeout", type=float); p.add_argument("--vision-model"); p.add_argument("--vision-endpoint"); p.add_argument("--vision-timeout", type=float); p.add_argument("--semantic-model"); p.add_argument("--semantic-endpoint"); p.add_argument("--semantic-timeout", type=float); p.add_argument("--semantic-full", "--full", dest="semantic_full", action="store_true")
+    p = argparse.ArgumentParser(); p.add_argument("command", choices=["serve", "index", "rebuild", "index-rebuild", "semantic-reindex", "vision-reextract", "backup", "restore", "pilot-evidence"]); p.add_argument("database", type=Path); p.add_argument("target", type=Path, nargs="?"); p.add_argument("--source-root", type=Path, default=Path.cwd()); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8080); p.add_argument("--mode", choices=["demo", "mock", "production"], default="demo"); p.add_argument("--result-json", type=Path, help="validated QA result JSON (required for pilot-evidence)"); p.add_argument("--ollama-model", help="explicitly activate loopback Ollama answerer"); p.add_argument("--ollama-endpoint"); p.add_argument("--ollama-timeout", type=float); p.add_argument("--openai-model", help="explicitly activate OpenAI Responses answerer; requires OPENAI_API_KEY"); p.add_argument("--openai-timeout", type=float); p.add_argument("--openai-retries", type=int); p.add_argument("--vision-model"); p.add_argument("--vision-endpoint"); p.add_argument("--vision-timeout", type=float); p.add_argument("--semantic-model"); p.add_argument("--semantic-endpoint"); p.add_argument("--semantic-timeout", type=float); p.add_argument("--semantic-full", "--full", dest="semantic_full", action="store_true")
     a = p.parse_args()
     try:
-        answerer = _answerer_from_args(a.command, a.ollama_model, a.ollama_endpoint, a.ollama_timeout)
+        answerer = _answerer_from_args(a.command, a.ollama_model, a.ollama_endpoint, a.ollama_timeout, a.openai_model, a.openai_timeout, a.openai_retries)
         vision_observer = _vision_from_args(a.command, a.vision_model, a.vision_endpoint, a.vision_timeout)
         semantic_embedder = _semantic_from_args(a.command, a.semantic_model, a.semantic_endpoint, a.semantic_timeout)
     except ValueError as exc:
@@ -328,7 +343,7 @@ def main():
         config = RuntimeConfig(a.database, a.source_root, a.host, a.port, a.mode, frontend_root=Path(__file__).parents[1] / "frontend", answerer=answerer, vision_observer=vision_observer, semantic_embedder=semantic_embedder, identity_provider=identity_provider, oidc_issuer=os.environ.get("OIDC_ISSUER"), oidc_audience=os.environ.get("OIDC_AUDIENCE"), oidc_jwks_url=os.environ.get("OIDC_JWKS_URL")); app = compose(config); print(config.status["banner"], flush=True) if config.mode == "mock" else None
         if a.command == "serve":
             server, token = create_server(app.service, a.host, a.port, frontend_root=config.frontend_root, max_query_chars=config.max_query_chars, max_results=config.max_results, identity_provider=config.identity_provider, production=config.mode == "production")
-            print(_serve_startup_output(f"{server.server_address[0]}:{server.server_address[1]}", config.mode, token), flush=True)
+            print(_serve_startup_output(f"{server.server_address[0]}:{server.server_address[1]}", config.mode, token, isinstance(answerer, OpenAIAnswerer)), flush=True)
             server.serve_forever()
         else:
             if a.command == "index": app.service.reconcile(app.connector, "startup")

@@ -2,12 +2,20 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from kb_pipeline.answer import DeterministicAnswerer, OllamaAnswerer
+from kb_pipeline.answer import DeterministicAnswerer, OllamaAnswerer, OpenAIAnswerer
 from kb_pipeline.cli import _answerer_from_args
 from kb_pipeline.composition import RuntimeConfig, compose
 
 
 class OllamaActivationTests(unittest.TestCase):
+    def test_openai_requires_explicit_model_and_keeps_key_out_of_config(self):
+        answerer = _answerer_from_args("serve", openai_model="gpt-test", openai_timeout=4, openai_retries=1)
+        self.assertIsInstance(answerer, OpenAIAnswerer)
+        self.assertEqual(("gpt-test", 4, 1), (answerer.model, answerer.timeout_seconds, answerer.max_retries))
+        with self.assertRaises(ValueError):
+            _answerer_from_args("serve", openai_timeout=4)
+        with self.assertRaises(ValueError):
+            _answerer_from_args("serve", "local", openai_model="gpt-test")
     def test_default_composition_abstains_without_network(self):
         with TemporaryDirectory() as directory:
             app = compose(RuntimeConfig(Path(directory) / "db", Path(directory)))
