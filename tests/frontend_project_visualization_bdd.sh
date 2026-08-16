@@ -55,12 +55,13 @@ JSON.stringify(location.protocol === 'http:' && document.title === 'Project visu
 EOF
 )"
 
-# E2E-009/P4-11 metadata assertion: mode, qualification, committed hashes, and
-# prior-recorded/dirty-worktree scope remain visible and internally consistent.
+# E2E-009/P4-11 metadata assertion: mode, qualification, authoritative commit,
+# migrations, current operator labels, and reference scope remain visible and
+# internally consistent.
 check 'Given reference metadata, When page renders, Then mode, qualification, commit, and scope agree' \
   "$(eval_page <<'EOF'
 const text = document.body.innerText;
-JSON.stringify(text.includes('MOCK / REFERENCE') && text.includes('production_qualification=false') && text.includes('1656b0e') && text.includes('development/mock scope only') && text.includes('397911e') && text.includes('uncommitted changes excluded'));
+JSON.stringify(text.includes('MOCK / REFERENCE') && text.includes('production_qualification=false') && text.includes('314eb94') && text.includes('397911e') && text.includes('migrations 1..7') && text.includes('Mock providers/reference evidence only; no live provider qualification.') && text.includes('CONDITIONAL DEVELOPER GO') && text.includes('test-operator SCRIPTED QA ONLY'));
 EOF
 )"
 

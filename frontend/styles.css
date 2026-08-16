@@ -66,7 +66,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .report-readiness { margin-top: 1.3rem; padding: 1rem; border: 1px solid #b7d9e62e; border-radius: .45rem; background: #082c4766; }
 .readiness-note { color: #a3d9dc; font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .readiness-copy { margin: .45rem 0 1rem; color: #c8dde9; font-size: .87rem; }
-.readiness-legend { display: flex; flex-wrap: wrap; gap: .45rem 1rem; margin: 0 0 1rem; padding: 0; color: #c8dde9; list-style: none; font-size: .77rem; }.readiness-legend li { display: flex; gap: .35rem; align-items: center; }.legend-dot { width: .58rem; height: .58rem; border-radius: 50%; background: #b9d2e0; }.legend-dot.is-complete { background: #a3d9dc; }.legend-dot.is-partial { background: #65b9ca; }.legend-dot.is-blocked { background: #f3b646; }
+.readiness-legend { display: flex; flex-wrap: wrap; gap: .45rem 1rem; margin: 0 0 1rem; padding: 0; color: #c8dde9; list-style: none; font-size: .77rem; }.readiness-legend li { display: flex; gap: .35rem; align-items: center; }.legend-dot { width: .58rem; height: .58rem; border-radius: 50%; background: #b9d2e0; }.legend-dot.is-complete { background: #4caf78; }.legend-dot.is-partial { background: #d9a441; }.legend-dot.is-blocked { background: #c95c5c; }.legend-dot.is-deferred { background: #5c8fd6; }
 .map-instruction { margin: -.35rem 0 .8rem; color: #b9d2e0; font-size: .78rem; }
 .pipeline-map { display: grid; grid-template-columns: repeat(5, minmax(10.5rem, 1fr)); gap: .7rem; margin: 0; padding: 0; list-style: none; overflow-x: auto; }
 .pipeline-group { position: relative; min-width: 10.5rem; padding: .75rem; border: 1px solid #b7d9e62e; border-radius: .42rem; background: #082c4799; }.pipeline-parent { display: grid; width: 100%; min-height: 6.8rem; place-content: center; margin: 0 0 .9rem; padding: 1rem 1.3rem; border: 0; border-radius: 0; color: #eaf5f8; background: #15506f; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); text-align: center; transition: transform .16s ease, filter .16s ease; }.pipeline-parent:hover { border: 0; background: #1c6286; transform: translateY(-2px); filter: brightness(1.08); }.pipeline-parent:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }.pipeline-parent span { font-size: .92rem; font-weight: 800; }.pipeline-parent small { margin-top: .35rem; color: #d9f1ef; font-size: .65rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }.pipeline-parent.is-partial { background: #17677e; }.pipeline-parent.is-blocked { color: #fff1cc; background: #795414; }.pipeline-parent.is-blocked small { color: #ffe1a1; }.pipeline-group:has(.pipeline-parent:hover) > .parent-detail, .pipeline-group:has(.pipeline-parent:focus-visible) > .parent-detail, .pipeline-group.is-pinned > .parent-detail { display: block; }.resolved-chain { margin: -.3rem 0 .55rem; color: #a3d9dc; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
@@ -110,9 +110,12 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .pipeline-parent small { display: block; color: #a9c6d5; font-size: .62rem; }
 .superhex { display: block; width: min(100%, 21rem); height: auto; margin-inline: auto; overflow: visible; filter: drop-shadow(0 .6rem .75rem #031a2b55); }
 .superhex-cell { stroke: none; }
-.superhex-cell.is-complete { fill: #a3d9dc; }
-.superhex-cell.is-partial { fill: #27839a; }
-.superhex-cell.is-blocked { fill: #d18e27; }
+.superhex-cell.is-complete { fill: #4caf78; }
+.superhex-cell.is-partial { fill: #d9a441; }
+.superhex-cell.is-blocked { fill: #c95c5c; }
+.superhex-cell.is-deferred { fill: #5c8fd6; }
+.capability.is-deferred > .capability-node, .dependency-child.is-deferred .capability-node { color: #e5f0f5; background: #466b83; }
+.capability.is-deferred > .capability-node small, .dependency-child.is-deferred .capability-node small { color: #c8dde9; }
 .dependency-index { position: relative; margin: 0; color: #c8dde9; font-size: .78rem; }
 .dependency-index summary { cursor: pointer; color: #d9f1ef; font-weight: 750; }
 .dependency-index > .capability-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; margin: .65rem 0 0; padding: 0; list-style: none; }

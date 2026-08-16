@@ -605,12 +605,25 @@ function hexPoints(cx, cy, radius = 48) {
   }).join(' ');
 }
 
+function dependencyStatus(dependency) {
+  const visibleStatus = dependency.querySelector('.capability-node small')?.textContent.trim().toLowerCase();
+  if (visibleStatus === 'deferred') {
+    dependency.classList.remove('is-blocked');
+    dependency.classList.add('is-deferred');
+    return 'deferred';
+  }
+  const statusClass = [...dependency.classList].find(name => name.startsWith('is-'));
+  const status = statusClass?.slice(3);
+  return ['complete', 'partial', 'blocked', 'deferred'].includes(status) ? status : 'deferred';
+}
+
 document.querySelectorAll('.pipeline-group > .capability-list').forEach((list, groupIndex) => {
   const dependencies = [...list.querySelectorAll(':scope > .capability')];
   if (!dependencies.length) return;
 
   dependencies.forEach((dependency, dependencyIndex) => {
     dependency.id = `dependency-${groupIndex}-${dependencyIndex}`;
+    dependency.dataset.status = dependencyStatus(dependency);
   });
 
   const parent = list.closest('.pipeline-group')?.querySelector(':scope > .pipeline-parent');
@@ -619,17 +632,22 @@ document.querySelectorAll('.pipeline-group > .capability-list').forEach((list, g
   svg.setAttribute('class', 'superhex');
   svg.setAttribute('viewBox', '0 0 249.415 240');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `${title}: seven dependency status cells`);
+  svg.setAttribute('aria-label', `${title}: dependency status cells`);
   svg.setAttribute('focusable', 'false');
 
   superhexSlots.forEach(([cx, cy], slot) => {
     const dependency = dependencies[slot % dependencies.length];
     const cell = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    const status = dependency.classList.contains('is-complete') ? 'complete'
-      : dependency.classList.contains('is-blocked') ? 'blocked' : 'partial';
+    const status = dependency.dataset.status;
     cell.setAttribute('class', `superhex-cell is-${status}`);
+    cell.setAttribute('data-status', status);
     cell.setAttribute('points', hexPoints(cx, cy));
     cell.setAttribute('data-dependency', dependency.id);
+    const label = `${dependency.querySelector('.capability-node span')?.textContent || 'Dependency'}: ${status}`;
+    cell.setAttribute('aria-label', label);
+    const cellTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    cellTitle.textContent = label;
+    cell.append(cellTitle);
     svg.append(cell);
   });
 
@@ -641,6 +659,16 @@ document.querySelectorAll('.pipeline-group > .capability-list').forEach((list, g
   parent?.insertAdjacentElement('afterend', svg);
   svg.insertAdjacentElement('afterend', detailIndex);
 });
+
+const readinessLegend = document.querySelector('.readiness-legend');
+if (readinessLegend) {
+  readinessLegend.innerHTML = [
+    ['complete', 'Complete — local evidence'],
+    ['partial', 'Partial — mock/provider gap'],
+    ['blocked', 'Blocked — production gap'],
+    ['deferred', 'Deferred — next'],
+  ].map(([status, label]) => `<li><span class="legend-dot is-${status}" aria-hidden="true"></span>${label}</li>`).join('');
+}
 
 document.querySelectorAll('.capability-node, .map-node').forEach((node) => {
   node.addEventListener('click', () => {
